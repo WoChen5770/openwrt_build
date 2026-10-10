@@ -1,0 +1,122 @@
+name: Firmware build core
+
+on:
+  workflow_call:
+    inputs:
+      profile:
+        required: true
+        type: string
+      source_commit:
+        required: true
+        type: string
+      fingerprint:
+        required: true
+        type: string
+      retention_days:
+        required: true
+        type: number
+      publish:
+        required: true
+        type: boolean
+
+concurrency:
+  group: firmware-${{ inputs.profile }}
+  cancel-in-progress: false
+
+jobs:
+  compile:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    permissions:
+      contents: read
+    env:
+      SOURCE_DIR: ${{ github.workspace }}/openwrt
+      PROFILE: ${{ inputs.profile }}
+      SOURCE_COMMIT: ${{ inputs.source_commit }}
+      FINGERPRINT: ${{ inputs.fingerprint }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Set ccache location
+        run: echo "CCACHE_DIR=$RUNNER_TEMP/ccache" >> "$GITHUB_ENV"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: build-plan-${{ github.run_attempt }}
+          path: .state/
+      - name: Install build dependencies
+        run: bash scripts/install-dependencies.sh
+      - name: Checkout locked source
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          from scripts.build import checkout, read_json
+          lock = read_json(Path('.state') / (os.environ['PROFILE'] + '.json'))
+          assert lock['source']['commit'] == os.environ['SOURCE_COMMIT']
+          assert lock['fingerprint'] == os.environ['FINGERPRINT']
+          checkout(lock['source']['repository'], lock['source']['commit'], Path(os.environ['SOURCE_DIR']))
+          PY
+          df -h .
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ${{ env.CCACHE_DIR }}
+            ${{ env.SOURCE_DIR }}/dl
+          key: firmware-${{ runner.os }}-${{ inputs.profile }}-${{ inputs.fingerprint }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            firmware-${{ runner.os }}-${{ inputs.profile }}-${{ inputs.fingerprint }}-
+            firmware-${{ runner.os }}-${{ inputs.profile }}-
+      - name: Integrate plugins and verify defconfig
+        run: |
+          mkdir -p logs
+          python3 scripts/build.py prepare --source "$SOURCE_DIR" --lock ".state/$PROFILE.json" 2>&1 | tee logs/prepare.log
+      - name: Compile with serial diagnostic retry
+        run: bash scripts/compile.sh "$SOURCE_DIR" "$GITHUB_WORKSPACE/logs"
+      - name: Collect firmware, packages and provenance
+        run: python3 scripts/build.py collect --source "$SOURCE_DIR" --lock ".state/$PROFILE.json" --output-dir out
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: firmware-${{ inputs.profile }}-${{ github.run_attempt }}
+          path: out/
+          retention-days: ${{ inputs.retention_days }}
+          if-no-files-found: error
+      - name: Save configuration diagnostics
+        if: always()
+        run: |
+          mkdir -p logs
+          if [[ -f "$SOURCE_DIR/.config" ]]; then cp "$SOURCE_DIR/.config" logs/config.full; fi
+          if [[ -d "$SOURCE_DIR/logs" ]]; then cp -R "$SOURCE_DIR/logs" logs/upstream; fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: logs-${{ inputs.profile }}-${{ github.run_attempt }}
+          path: |
+            logs/
+            .state/${{ inputs.profile }}.json
+          include-hidden-files: true
+          retention-days: ${{ inputs.retention_days }}
+  publish:
+    needs: compile
+    if: inputs.publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: firmware-${{ inputs.profile }}-${{ github.run_attempt }}
+          path: firmware/
+      - name: Publish a new release without replacing old builds
+        working-directory: firmware
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PROFILE: ${{ inputs.profile }}
+          CI_COMMIT: ${{ github.sha }}
+        run: |
+          sha256sum -c sha256sums
+          tag="$PROFILE-$(date -u +%Y%m%d-%H%M%S)-r$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          gh release create "$tag" ./* --target "$CI_COMMIT" --title "$PROFILE $(date -u +%F)" --notes-file release-notes.md

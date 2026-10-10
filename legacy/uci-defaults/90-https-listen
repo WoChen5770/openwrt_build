@@ -1,0 +1,11 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+# Copyright (C) 2026 VIKINGYFY
+# 固件首次开机自动执行：为 uhttpd 保留 HTTPS 监听，不强制 HTTP 跳转
+# 不改写 redirect_https：全新配置沿用上游默认 0，保留用户手动设置。
+
+uci set uhttpd.main.listen_https='0.0.0.0:443'
+uci add_list uhttpd.main.listen_https='[::]:443'
+uci commit uhttpd
+
+exit 0

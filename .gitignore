@@ -1,0 +1,7 @@
+.state/
+logs/
+out/
+openwrt/
+__pycache__/
+*.pyc
+.DS_Store

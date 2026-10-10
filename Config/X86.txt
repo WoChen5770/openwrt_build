@@ -1,0 +1,142 @@
+#设备平台
+CONFIG_TARGET_x86=y
+CONFIG_TARGET_x86_64=y
+#设备列表
+CONFIG_TARGET_ALL_PROFILES=n
+CONFIG_TARGET_DEVICE_x86_64_DEVICE_generic=y
+#预置 feeds 配套的原生 AdGuard Home 核心及 LuCI 面板。
+CONFIG_PACKAGE_adguardhome=y
+CONFIG_PACKAGE_luci-app-adguardhome=y
+CONFIG_PACKAGE_luci-app-adguardhome-dashboard=n
+#X86 使用统一根文件系统，允许完整禁用设备 profile 自带的包。
+#否则 MODULE_DEFAULT_* 会强制把 USB 网卡、automount 等重新选为 m。
+CONFIG_TARGET_PER_DEVICE_ROOTFS=n
+#不集成WIFI驱动
+#daed后端所需内核能力
+CONFIG_KERNEL_DEBUG_INFO=y
+CONFIG_KERNEL_DEBUG_INFO_REDUCED=n
+CONFIG_KERNEL_DEBUG_INFO_BTF=y
+CONFIG_KERNEL_BPF_EVENTS=y
+CONFIG_KERNEL_XDP_SOCKETS=y
+CONFIG_DAED_USE_KERNEL_BTF=y
+# Use the GitHub Actions host LLVM instead of falling back to /invalid/clang
+CONFIG_BPF_TOOLCHAIN_HOST=y
+# honk 核心、LuCI 和中文界面；与 daed 并存，服务默认不启用。
+CONFIG_PACKAGE_honk=y
+CONFIG_PACKAGE_luci-app-honk=y
+CONFIG_PACKAGE_luci-i18n-honk-zh-cn=y
+CONFIG_PACKAGE_kmod-veth=y
+CONFIG_PACKAGE_kmod-nft-queue=y
+CONFIG_PACKAGE_v2ray-geoip=y
+CONFIG_PACKAGE_v2ray-geosite=y
+#组件调整
+CONFIG_GRUB_IMAGES=y
+CONFIG_GRUB_EFI_IMAGES=y
+CONFIG_TARGET_IMAGES_GZIP=y
+CONFIG_VMDK_IMAGES=y
+CONFIG_TARGET_KERNEL_PARTSIZE=128
+CONFIG_TARGET_ROOTFS_PARTSIZE=1024
+CONFIG_TARGET_ROOTFS_EXT4FS=n
+#内核模块调整
+CONFIG_PACKAGE_kmod-hwmon-w83627ehf=y
+CONFIG_PACKAGE_kmod-hwmon-w83627hf=y
+CONFIG_PACKAGE_kmod-w83627hf-wdt=y
+
+#网络优化
+#通过内核包选择 BBR，避免混用未经确认的 CONFIG_KERNEL_* 符号
+CONFIG_PACKAGE_kmod-tcp-bbr=y
+#fq 调度器（sch_fq 模块，配合 BBR 公平队列；default_qdisc=fq 依赖它）
+CONFIG_PACKAGE_kmod-sched=y
+#完整 tc 工具，用于检查 fq 和各接口队列
+CONFIG_PACKAGE_tc-full=y
+
+#飞牛 / Virtio 虚拟机裁剪（CI 在 GENERAL.txt 之后加载本文件）
+#保留 Virtio、直通 PCIe 网卡、AHCI/NVMe 和基础 USB/HID 控制台支持。
+#保留启动、/overlay 和 sysupgrade 所需的 EXT4/F2FS/VFAT 及基础磁盘工具。
+CONFIG_PACKAGE_kmod-fs-ext4=y
+CONFIG_PACKAGE_kmod-fs-f2fs=y
+CONFIG_PACKAGE_kmod-fs-vfat=y
+
+#不集成 USB 网卡、蜂窝网卡、手机共享网络及额外的 SoC USB 控制器
+CONFIG_PACKAGE_kmod-usb-dwc3=n
+CONFIG_PACKAGE_kmod-usb-net=n
+CONFIG_PACKAGE_kmod-usb-net-asix=n
+CONFIG_PACKAGE_kmod-usb-net-asix-ax88179=n
+CONFIG_PACKAGE_kmod-usb-net-cdc-eem=n
+CONFIG_PACKAGE_kmod-usb-net-cdc-ether=n
+CONFIG_PACKAGE_kmod-usb-net-cdc-mbim=n
+CONFIG_PACKAGE_kmod-usb-net-cdc-ncm=n
+CONFIG_PACKAGE_kmod-usb-net-cdc-subset=n
+CONFIG_PACKAGE_kmod-usb-net-huawei-cdc-ncm=n
+CONFIG_PACKAGE_kmod-usb-net-ipheth=n
+CONFIG_PACKAGE_kmod-usb-net-qmi-wwan=n
+CONFIG_PACKAGE_kmod-usb-net-qmi-wwan-fibocom=n
+CONFIG_PACKAGE_kmod-usb-net-qmi-wwan-quectel=n
+CONFIG_PACKAGE_kmod-usb-net-rndis=n
+CONFIG_PACKAGE_kmod-usb-net-rtl8150=n
+CONFIG_PACKAGE_kmod-usb-net-rtl8152=n
+CONFIG_PACKAGE_kmod-usb-net-rtl8152-vendor=n
+CONFIG_PACKAGE_kmod-usb-net-sierrawireless=n
+CONFIG_PACKAGE_kmod-usb-wdm=n
+CONFIG_PACKAGE_libimobiledevice=n
+CONFIG_PACKAGE_usbmuxd=n
+CONFIG_PACKAGE_usb-modeswitch=n
+CONFIG_PACKAGE_usbutils=n
+
+#不集成音频和 USB 外接存储
+CONFIG_PACKAGE_kmod-sound-core=n
+CONFIG_PACKAGE_kmod-usb-audio=n
+CONFIG_PACKAGE_kmod-usb-storage=n
+CONFIG_PACKAGE_kmod-usb-storage-extras=n
+CONFIG_PACKAGE_kmod-usb-storage-uas=n
+
+#不集成额外文件系统、自动挂载、磁盘维护及裸闪存工具
+CONFIG_PACKAGE_kmod-fs-btrfs=n
+CONFIG_PACKAGE_kmod-fs-exfat=n
+CONFIG_PACKAGE_kmod-fs-ksmbd=n
+CONFIG_PACKAGE_kmod-fs-ntfs3=n
+CONFIG_PACKAGE_kmod-fuse=n
+CONFIG_PACKAGE_kmod-mtd-rw=n
+CONFIG_PACKAGE_automount=n
+CONFIG_PACKAGE_ntfs3-mount=n
+CONFIG_PACKAGE_cfdisk=n
+CONFIG_PACKAGE_cgdisk=n
+CONFIG_PACKAGE_gdisk=n
+CONFIG_PACKAGE_sfdisk=n
+CONFIG_PACKAGE_sgdisk=n
+CONFIG_PACKAGE_exfat-fsck=n
+CONFIG_PACKAGE_exfat-mkfs=n
+CONFIG_PACKAGE_libnvme=n
+CONFIG_PACKAGE_nvme-cli=n
+CONFIG_PACKAGE_mmc-utils=n
+CONFIG_PACKAGE_nand-utils=n
+CONFIG_PACKAGE_smartmontools=n
+CONFIG_PACKAGE_smartmontools-drivedb=n
+
+# 保留 EasyTier 核心和 LuCI，但不预置 easytier-web。
+CONFIG_EASYTIER_INCLUDE_WEBCONSOLE=n
+
+#PassWall 不默认集成这些后端；必须同时关闭 INCLUDE 选项，避免依赖重新选中。
+# 源码仍保留，可修改本文件按需重新启用。
+CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Shadowsocks_Rust_Client=n
+CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Shadowsocks_Rust_Server=n
+CONFIG_PACKAGE_luci-app-passwall_INCLUDE_ShadowsocksR_Libev_Client=n
+CONFIG_PACKAGE_luci-app-passwall_INCLUDE_ShadowsocksR_Libev_Server=n
+CONFIG_PACKAGE_luci-app-passwall_INCLUDE_SingBox=n
+CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Haproxy=n
+CONFIG_PACKAGE_shadowsocks-rust-sslocal=n
+CONFIG_PACKAGE_shadowsocks-rust-ssmanager=n
+CONFIG_PACKAGE_shadowsocks-rust-ssserver=n
+CONFIG_PACKAGE_shadowsocks-rust-ssservice=n
+CONFIG_PACKAGE_shadowsocks-rust-ssurl=n
+CONFIG_PACKAGE_shadowsocksr-libev-ssr-local=n
+CONFIG_PACKAGE_shadowsocksr-libev-ssr-redir=n
+CONFIG_PACKAGE_shadowsocksr-libev-ssr-server=n
+CONFIG_PACKAGE_sing-box=n
+CONFIG_PACKAGE_sing-box-tiny=n
+CONFIG_PACKAGE_haproxy=n
+CONFIG_PACKAGE_haproxy-nossl=n
+
+#PassWall 使用官方新版 Xray 核心；软件包仍由 APK 管理。
+CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Xray=y
+CONFIG_PACKAGE_xray-core=y

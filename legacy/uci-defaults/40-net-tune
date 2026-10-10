@@ -1,0 +1,59 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+# Copyright (C) 2026 VIKINGYFY
+# 首次启动（包括升级后）：x86 软件卸载 + 上游 BBR + fq。
+# 不引入 BBR v3 补丁；失败返回非零，使 uci-defaults 保留脚本供重试。
+
+case "$(uname -m)" in
+	x86_64|i?86) ;;
+	*) exit 0 ;;
+esac
+
+fail() {
+	logger -t net-tune "$*"
+	echo "net-tune: $*" >&2
+	exit 1
+}
+
+# 不要求 modprobe 成功：上游也可能将功能直接编入内核。
+modprobe tcp_bbr 2>/dev/null || :
+modprobe sch_fq 2>/dev/null || :
+case " $(sysctl -n net.ipv4.tcp_available_congestion_control) " in
+	*" bbr "*) ;;
+	*) fail "BBR unavailable; check kmod-tcp-bbr and kernel compatibility" ;;
+esac
+sysctl -w net.core.default_qdisc=fq ||
+	fail "fq unavailable; check kmod-sched (sch_fq) and kernel compatibility"
+
+# 仅调整本项目的 x86 默认值，不修改其他平台的硬件卸载配置。
+uci -q delete firewall.@defaults[0].flow_offloading_hw
+uci set firewall.@defaults[0].flow_offloading='1' || fail "Cannot enable software offloading"
+uci commit firewall || fail "Cannot save firewall defaults"
+
+# 保留升级恢复的自定义配置；不要用新默认值静默覆盖用户修改。
+SYSCTL_TUNE="/etc/sysctl.d/99-openwrt-tune.conf"
+mkdir -p /etc/sysctl.d || fail "Cannot create sysctl directory"
+if [ ! -f "$SYSCTL_TUNE" ]; then
+	cat > "$SYSCTL_TUNE" <<'EOF'
+# OpenWrt 自定义优化
+net.ipv4.tcp_congestion_control=bbr
+net.core.default_qdisc=fq
+net.ipv4.tcp_fastopen=3
+net.core.netdev_max_backlog=4096
+net.ipv4.tcp_mtu_probing=1
+EOF
+	[ "$?" -eq 0 ] || fail "Cannot write sysctl defaults"
+fi
+
+# 逐项加载，某个旧配置无效时不阻止后续项目（如 TFO）加载。
+failed=0
+while IFS= read -r line || [ -n "$line" ]; do
+	setting=$(printf '%s\n' "$line" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+	case "$setting" in
+		''|\#*|\;*) continue ;;
+	esac
+	sysctl -w "$setting" || failed=1
+done < "$SYSCTL_TUNE"
+[ "$failed" -eq 0 ] || fail "Some sysctl settings failed; check $SYSCTL_TUNE"
+logger -t net-tune "Loaded $SYSCTL_TUNE; existing custom values were preserved"
+exit 0

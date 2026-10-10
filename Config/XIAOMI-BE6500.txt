@@ -1,0 +1,139 @@
+# Xiaomi BE6500 Mesh 版配置（Qualcomm IPQ5312 / qualcommbe/ipq53xx）
+CONFIG_TARGET_qualcommbe=y
+CONFIG_TARGET_qualcommbe_ipq53xx=y
+CONFIG_TARGET_DEVICE_qualcommbe_ipq53xx_DEVICE_xiaomi_be6500=y
+
+# 保留上游高通网络/无线驱动、IPQ5332/QCN9274 固件和 BE6500 专用校准数据。
+# 不修改设备树、NAND/UBI 分区布局，也不套用 BE12 Pro 的 Filogic 设备配置。
+CONFIG_PACKAGE_kmod-qcom-ppe=y
+CONFIG_PACKAGE_kmod-ath12k=y
+CONFIG_PACKAGE_ath12k-firmware-ipq5332-ddwrt=y
+CONFIG_PACKAGE_ath12k-firmware-qcn9274-ddwrt=y
+CONFIG_PACKAGE_ipq-wifi-xiaomi_be6500=y
+
+# 与 BE12 Pro 一致，默认集成 802.11s Mesh，保留完整 wpad 和组网/漫游依赖。
+CONFIG_PACKAGE_luci-app-mesh=y
+CONFIG_PACKAGE_kmod-mac80211=y
+CONFIG_PACKAGE_MAC80211_MESH=y
+CONFIG_PACKAGE_wpad-openssl=y
+CONFIG_PACKAGE_wpad-mesh-openssl=n
+CONFIG_PACKAGE_kmod-batman-adv=y
+# 保留有线/无线回程并存时所需的桥环规避。
+CONFIG_BATMAN_ADV_BLA=y
+CONFIG_PACKAGE_batctl-default=y
+CONFIG_PACKAGE_luci-proto-batman-adv=y
+CONFIG_PACKAGE_dawn=y
+CONFIG_PACKAGE_umdns=y
+
+# 覆盖 GENERAL 的默认选包：不预置 UPnP、WOLUltra、PassWall 或 daed。
+# Mesh 与基础管理功能保留，修改本文件和 packages.json 可选用扩展。
+CONFIG_PACKAGE_luci-app-upnp=n
+CONFIG_PACKAGE_miniupnpd=n
+CONFIG_PACKAGE_miniupnpd-nftables=n
+CONFIG_PACKAGE_miniupnpd-iptables=n
+CONFIG_PACKAGE_luci-app-wolultra=n
+CONFIG_PACKAGE_luci-app-passwall=n
+CONFIG_PACKAGE_luci-app-daede=n
+CONFIG_PACKAGE_luci-app-daede_daed=n
+CONFIG_PACKAGE_daed=n
+CONFIG_PACKAGE_dae=n
+
+# 沿用 BE12 Pro 的通用扩展裁剪：不预置 USB、PC 磁盘和音频扩展。
+# 保留高通网络/无线及 NAND/UBI 维护组件，避免影响设备驱动和刷机维护。
+# 修改本文件可按需重新启用以下软件包，并同步调整禁止包校验。
+CONFIG_PACKAGE_kmod-ata-ahci=n
+CONFIG_PACKAGE_kmod-ata-core=n
+CONFIG_PACKAGE_kmod-nvme=n
+CONFIG_PACKAGE_kmod-fs-btrfs=n
+CONFIG_PACKAGE_kmod-fs-ksmbd=n
+CONFIG_PACKAGE_kmod-fuse=n
+CONFIG_PACKAGE_kmod-sound-core=n
+CONFIG_PACKAGE_kmod-usb3=n
+CONFIG_PACKAGE_kmod-usb-core=n
+CONFIG_PACKAGE_kmod-usb-dwc3=n
+# 同时关闭 qualcommbe 默认的 USB 控制器/串口包，避免重新拉入 USB 栈。
+CONFIG_PACKAGE_kmod-usb-dwc3-qcom=n
+CONFIG_PACKAGE_kmod-usb-serial=n
+CONFIG_PACKAGE_kmod-usb-serial-qualcomm=n
+CONFIG_PACKAGE_kmod-usb-audio=n
+CONFIG_PACKAGE_kmod-usb-ehci=n
+CONFIG_PACKAGE_kmod-usb-ohci=n
+CONFIG_PACKAGE_kmod-usb-uhci=n
+CONFIG_PACKAGE_kmod-usb-net=n
+CONFIG_PACKAGE_kmod-usb-net-asix=n
+CONFIG_PACKAGE_kmod-usb-net-asix-ax88179=n
+CONFIG_PACKAGE_kmod-usb-net-cdc-eem=n
+CONFIG_PACKAGE_kmod-usb-net-cdc-ether=n
+CONFIG_PACKAGE_kmod-usb-net-cdc-mbim=n
+CONFIG_PACKAGE_kmod-usb-net-cdc-ncm=n
+CONFIG_PACKAGE_kmod-usb-net-cdc-subset=n
+CONFIG_PACKAGE_kmod-usb-net-huawei-cdc-ncm=n
+CONFIG_PACKAGE_kmod-usb-net-ipheth=n
+CONFIG_PACKAGE_kmod-usb-net-rndis=n
+CONFIG_PACKAGE_kmod-usb-net-rtl8150=n
+CONFIG_PACKAGE_kmod-usb-net-rtl8152=n
+CONFIG_PACKAGE_kmod-usb-net-sierrawireless=n
+CONFIG_PACKAGE_kmod-usb-storage=n
+CONFIG_PACKAGE_kmod-usb-storage-extras=n
+CONFIG_PACKAGE_kmod-usb-storage-uas=n
+CONFIG_PACKAGE_automount=n
+CONFIG_PACKAGE_blkid=n
+CONFIG_PACKAGE_lsblk=n
+CONFIG_PACKAGE_cfdisk=n
+CONFIG_PACKAGE_cgdisk=n
+CONFIG_PACKAGE_gdisk=n
+CONFIG_PACKAGE_sfdisk=n
+CONFIG_PACKAGE_sgdisk=n
+CONFIG_PACKAGE_exfat-fsck=n
+CONFIG_PACKAGE_exfat-mkfs=n
+CONFIG_PACKAGE_libimobiledevice=n
+CONFIG_PACKAGE_libnvme=n
+CONFIG_PACKAGE_nvme-cli=n
+CONFIG_PACKAGE_mmc-utils=n
+CONFIG_PACKAGE_smartmontools=n
+CONFIG_PACKAGE_smartmontools-drivedb=n
+CONFIG_PACKAGE_usb-modeswitch=n
+CONFIG_PACKAGE_usbmuxd=n
+CONFIG_PACKAGE_usbutils=n
+
+# 与 BE12 Pro 一致，默认不预置 Bandix、EasyTier。
+CONFIG_PACKAGE_luci-app-bandix=n
+CONFIG_PACKAGE_bandix=n
+CONFIG_PACKAGE_luci-app-easytier=n
+CONFIG_PACKAGE_easytier=n
+# BE6500 不集成 AdGuard Home：不拉取面板，不预置核心。
+CONFIG_PACKAGE_adguardhome=n
+CONFIG_PACKAGE_luci-app-adguardhome=n
+CONFIG_PACKAGE_luci-app-adguardhome-dashboard=n
+CONFIG_EASYTIER_INCLUDE_WEBCONSOLE=n
+
+# PassWall 不默认集成这些后端；同时关闭 INCLUDE 选项，避免依赖重新选中。
+# 源码仍保留，可修改本文件按需重新启用。
+CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Shadowsocks_Rust_Client=n
+CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Shadowsocks_Rust_Server=n
+CONFIG_PACKAGE_luci-app-passwall_INCLUDE_ShadowsocksR_Libev_Client=n
+CONFIG_PACKAGE_luci-app-passwall_INCLUDE_ShadowsocksR_Libev_Server=n
+CONFIG_PACKAGE_luci-app-passwall_INCLUDE_SingBox=n
+CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Haproxy=n
+CONFIG_PACKAGE_luci-app-passwall_INCLUDE_V2ray_Plugin=n
+CONFIG_PACKAGE_shadowsocks-rust-sslocal=n
+CONFIG_PACKAGE_shadowsocks-rust-ssmanager=n
+CONFIG_PACKAGE_shadowsocks-rust-ssserver=n
+CONFIG_PACKAGE_shadowsocks-rust-ssservice=n
+CONFIG_PACKAGE_shadowsocks-rust-ssurl=n
+CONFIG_PACKAGE_shadowsocksr-libev-ssr-local=n
+CONFIG_PACKAGE_shadowsocksr-libev-ssr-redir=n
+CONFIG_PACKAGE_shadowsocksr-libev-ssr-server=n
+CONFIG_PACKAGE_sing-box=n
+CONFIG_PACKAGE_sing-box-tiny=n
+CONFIG_PACKAGE_haproxy=n
+CONFIG_PACKAGE_haproxy-nossl=n
+CONFIG_PACKAGE_v2ray-plugin=n
+
+# 不预置 PassWall 的 Xray 核心。
+CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Xray=n
+CONFIG_PACKAGE_xray-core=n
+
+# Mesh 版不需要代理核心压缩工具或手动更新器。
+CONFIG_PACKAGE_upx-arm64-static=n
+CONFIG_PACKAGE_owrt-core-update=n

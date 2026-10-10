@@ -1,0 +1,102 @@
+# Super Gateway S20P（MediaTek Filogic / MT7986A，2GB 内存 + 128GB 存储）
+CONFIG_TARGET_mediatek=y
+CONFIG_TARGET_mediatek_filogic=y
+CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_supergateway_s20p=y
+
+# 保留上游设备自带的 WiFi、USB、MMC/NVMe 和文件系统支持。
+# 不套用 X86 / BE12 Pro 的硬件裁剪，也不修改设备树或 eMMC 分区布局。
+CONFIG_PACKAGE_kmod-cryptodev=y
+CONFIG_PACKAGE_kmod-tls=y
+
+# mt76 完整版本：PassWall + Xray、daed、honk、EasyTier。
+CONFIG_PACKAGE_luci-app-passwall=y
+CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Xray=y
+CONFIG_PACKAGE_xray-core=y
+
+# PassWall 只使用 Xray：同时关闭 INCLUDE 与实际包，避免默认依赖拉入 Rust 等工具链。
+# 保留 Geoview、地理数据和透明代理依赖；它们不是额外代理后端。
+CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Haproxy=n
+CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Hysteria=n
+CONFIG_PACKAGE_luci-app-passwall_INCLUDE_NaiveProxy=n
+CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Shadowsocks_Rust_Client=n
+CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Shadowsocks_Rust_Server=n
+CONFIG_PACKAGE_luci-app-passwall_INCLUDE_ShadowsocksR_Libev_Client=n
+CONFIG_PACKAGE_luci-app-passwall_INCLUDE_ShadowsocksR_Libev_Server=n
+CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Shadow_TLS=n
+CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Simple_Obfs=n
+CONFIG_PACKAGE_luci-app-passwall_INCLUDE_SingBox=n
+CONFIG_PACKAGE_luci-app-passwall_INCLUDE_V2ray_Plugin=n
+CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Xray_Plugin=n
+CONFIG_PACKAGE_haproxy=n
+CONFIG_PACKAGE_haproxy-nossl=n
+CONFIG_PACKAGE_hysteria=n
+CONFIG_PACKAGE_naiveproxy=n
+CONFIG_PACKAGE_shadowsocks-rust-sslocal=n
+CONFIG_PACKAGE_shadowsocks-rust-ssmanager=n
+CONFIG_PACKAGE_shadowsocks-rust-ssserver=n
+CONFIG_PACKAGE_shadowsocks-rust-ssservice=n
+CONFIG_PACKAGE_shadowsocks-rust-ssurl=n
+CONFIG_PACKAGE_shadowsocksr-libev-ssr-local=n
+CONFIG_PACKAGE_shadowsocksr-libev-ssr-redir=n
+CONFIG_PACKAGE_shadowsocksr-libev-ssr-server=n
+CONFIG_PACKAGE_shadow-tls=n
+CONFIG_PACKAGE_simple-obfs-client=n
+CONFIG_PACKAGE_simple-obfs-server=n
+CONFIG_PACKAGE_sing-box=n
+CONFIG_PACKAGE_sing-box-tiny=n
+CONFIG_PACKAGE_v2ray-plugin=n
+CONFIG_PACKAGE_xray-plugin=n
+
+# 独立的 daed、EasyTier 不受 PassWall 后端裁剪影响。
+CONFIG_PACKAGE_luci-app-daede=y
+CONFIG_PACKAGE_luci-app-daede_daed=y
+CONFIG_PACKAGE_daed=y
+
+# 额外预装 honk 及中文 LuCI，保留 daed；沿用上游 enabled=0 与关闭的 native API。
+# 使用预编译 ARM64 核心，不引入 Rust 源码编译；试用前停止其他透明代理。
+CONFIG_PACKAGE_honk=y
+CONFIG_PACKAGE_luci-app-honk=y
+CONFIG_PACKAGE_luci-i18n-honk-zh-cn=y
+CONFIG_PACKAGE_kmod-veth=y
+CONFIG_PACKAGE_kmod-nft-queue=y
+CONFIG_PACKAGE_v2ray-geoip=y
+CONFIG_PACKAGE_v2ray-geosite=y
+
+CONFIG_PACKAGE_luci-app-bandix=n
+CONFIG_PACKAGE_bandix=n
+CONFIG_PACKAGE_luci-app-easytier=y
+CONFIG_PACKAGE_easytier=y
+# 与 X86 一致，保留 EasyTier 核心和 LuCI，不额外预置 Web Console。
+CONFIG_EASYTIER_INCLUDE_WEBCONSOLE=n
+
+# 原生 AdGuard Home 核心及 LuCI 面板，沿用 feeds 的默认路径和服务。
+CONFIG_PACKAGE_adguardhome=y
+CONFIG_PACKAGE_luci-app-adguardhome=y
+CONFIG_PACKAGE_luci-app-adguardhome-dashboard=n
+
+# 802.11s Mesh：复用 Filogic 默认的完整 wpad，避免与 mesh 变体冲突。
+CONFIG_PACKAGE_luci-app-mesh=y
+CONFIG_PACKAGE_kmod-mac80211=y
+CONFIG_PACKAGE_MAC80211_MESH=y
+CONFIG_PACKAGE_wpad-openssl=y
+CONFIG_PACKAGE_wpad-mesh-openssl=n
+CONFIG_PACKAGE_kmod-batman-adv=y
+# 保留有线/无线回程并存时所需的桥环规避。
+CONFIG_BATMAN_ADV_BLA=y
+CONFIG_PACKAGE_batctl-default=y
+CONFIG_PACKAGE_luci-proto-batman-adv=y
+CONFIG_PACKAGE_dawn=y
+CONFIG_PACKAGE_umdns=y
+
+# daed 使用内核 BTF 与构建主机 LLVM，避免依赖缺失的 vmlinux-btf 包。
+CONFIG_KERNEL_DEBUG_INFO=y
+CONFIG_KERNEL_DEBUG_INFO_REDUCED=n
+CONFIG_KERNEL_DEBUG_INFO_BTF=y
+CONFIG_KERNEL_BPF_EVENTS=y
+CONFIG_KERNEL_XDP_SOCKETS=y
+CONFIG_DAED_USE_KERNEL_BTF=y
+CONFIG_BPF_TOOLCHAIN_HOST=y
+
+# 存储充足，Xray 使用未压缩的官方 ARM64 核心，不预置 BE12 Pro 更新器。
+CONFIG_PACKAGE_upx-arm64-static=n
+CONFIG_PACKAGE_owrt-core-update=n

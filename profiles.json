@@ -1,0 +1,79 @@
+{
+  "sources": {
+    "viking": {
+      "repository": "https://github.com/VIKINGYFY/immortalwrt.git",
+      "branch": "owrt"
+    },
+    "chasey": {
+      "repository": "https://github.com/chasey-dev/immortalwrt-mt798x-rebase.git",
+      "branch": "25.12"
+    }
+  },
+  "profiles": {
+    "xiaomi-be6500": {
+      "source": "viking",
+      "target": "qualcommbe",
+      "subtarget": "ipq53xx",
+      "device": "xiaomi_be6500",
+      "image_match": "xiaomi_be6500",
+      "variant": "ath12k",
+      "legacy_name": "XIAOMI-BE6500",
+      "hostname": "XIAOMI-BE6500",
+      "fragments": ["Config/GENERAL.txt", "Config/XIAOMI-BE6500.txt", "configs/base.config"],
+      "required": ["PACKAGE_kmod-ath12k", "PACKAGE_kmod-qcom-ppe", "PACKAGE_ipq-wifi-xiaomi_be6500", "PACKAGE_ath12k-firmware-ipq5332-ddwrt", "PACKAGE_ath12k-firmware-qcn9274-ddwrt"],
+      "forbidden": ["PACKAGE_kmod-mt_wifi"]
+    },
+    "tenda-be12-pro": {
+      "source": "viking",
+      "target": "mediatek",
+      "subtarget": "filogic",
+      "device": "tenda_be12-pro",
+      "image_match": "tenda_be12-pro",
+      "variant": "mt76",
+      "legacy_name": "TENDA-BE12-PRO",
+      "hostname": "TENDA-BE12-PRO",
+      "fragments": ["Config/GENERAL.txt", "Config/TENDA-BE12-PRO.txt", "configs/base.config"],
+      "required": ["PACKAGE_kmod-mt7992-firmware", "PACKAGE_mt7987-2p5g-phy-firmware", "PACKAGE_kmod-phy-airoha-en8811h"],
+      "forbidden": ["PACKAGE_kmod-mt_wifi"]
+    },
+    "s20p-mt76": {
+      "source": "viking",
+      "target": "mediatek",
+      "subtarget": "filogic",
+      "device": "supergateway_s20p",
+      "image_match": "supergateway_s20p",
+      "variant": "mt76",
+      "legacy_name": "SUPERGATEWAY-S20P-MT76",
+      "hostname": "SUPERGATEWAY-S20P-MT76",
+      "fragments": ["Config/GENERAL.txt", "Config/SUPERGATEWAY-S20P-MT76.txt", "configs/base.config", "configs/passwall-xray-only.config"],
+      "required": ["PACKAGE_kmod-mt7915e", "PACKAGE_kmod-mt7986-firmware", "PACKAGE_kmod-mmc"],
+      "forbidden": ["PACKAGE_kmod-mt_wifi"]
+    },
+    "x86-64": {
+      "source": "viking",
+      "target": "x86",
+      "subtarget": "64",
+      "device": "generic",
+      "image_match": "generic",
+      "variant": "generic",
+      "legacy_name": "X86",
+      "hostname": "X86",
+      "fragments": ["Config/GENERAL.txt", "Config/X86.txt", "configs/base.config", "configs/passwall-xray-only.config"],
+      "required": ["GRUB_IMAGES", "GRUB_EFI_IMAGES", "TARGET_ROOTFS_SQUASHFS"],
+      "forbidden": ["PACKAGE_kmod-mt_wifi", "PACKAGE_kmod-ath12k", "PACKAGE_kmod-mt7915e"]
+    },
+    "s20p-mtk": {
+      "source": "chasey",
+      "target": "mediatek",
+      "subtarget": "filogic",
+      "device": "clx_s20p",
+      "image_match": "clx_s20p",
+      "variant": "mtk-vendor",
+      "legacy_name": "SUPERGATEWAY-S20P-MTK",
+      "hostname": "SUPERGATEWAY-S20P-MTK",
+      "fragments": ["Config/GENERAL.txt", "Config/SUPERGATEWAY-S20P-MTK.txt", "configs/base.config", "configs/passwall-xray-only.config"],
+      "required": ["PACKAGE_kmod-mt_wifi", "PACKAGE_kmod-conninfra", "PACKAGE_kmod-warp", "PACKAGE_kmod-mediatek_hnat", "PACKAGE_mtwifi-cfg-ucode", "PACKAGE_luci-app-mtwifi-cfg", "PACKAGE_kmod-mmc"],
+      "forbidden": ["PACKAGE_kmod-mt7915e", "PACKAGE_kmod-mt7996"]
+    }
+  }
+}

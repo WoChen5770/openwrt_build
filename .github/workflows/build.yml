@@ -1,0 +1,78 @@
+name: Build firmware
+
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: 编译机型
+        type: choice
+        default: all
+        options: [all, xiaomi-be6500, tenda-be12-pro, s20p-mt76, s20p-mtk, x86-64]
+      source_commit:
+        description: 可选上游完整提交 SHA（仅单机型）
+        type: string
+        default: ''
+      force:
+        description: 即使源码与配置未变也重新编译
+        type: boolean
+        default: true
+      publish:
+        description: 成功后发布 GitHub Release
+        type: boolean
+        default: false
+  schedule:
+    - cron: '15 20 * * *'
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      has_builds: ${{ steps.plan.outputs.has_builds }}
+      max_parallel: ${{ steps.plan.outputs.max_parallel }}
+      retention_days: ${{ steps.plan.outputs.retention_days }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Lock upstream, feeds and plugins
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PROFILE: ${{ inputs.profile || 'all' }}
+          SOURCE_COMMIT: ${{ inputs.source_commit }}
+          FORCE: ${{ inputs.force }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          args=(--profile "$PROFILE" --event "$EVENT_NAME" --github-output "$GITHUB_OUTPUT")
+          if [[ -n "$SOURCE_COMMIT" ]]; then args+=(--commit "$SOURCE_COMMIT"); fi
+          if [[ "$FORCE" == true ]]; then args+=(--force); fi
+          python3 scripts/build.py plan "${args[@]}"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: steps.plan.outputs.has_builds == 'true'
+        with:
+          name: build-plan-${{ github.run_attempt }}
+          path: .state/
+          include-hidden-files: true
+          retention-days: 14
+          if-no-files-found: error
+  build:
+    needs: plan
+    if: needs.plan.outputs.has_builds == 'true'
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      max-parallel: ${{ fromJSON(needs.plan.outputs.max_parallel) }}
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    uses: ./.github/workflows/build-core.yml
+    with:
+      profile: ${{ matrix.profile }}
+      source_commit: ${{ matrix.source_commit }}
+      fingerprint: ${{ matrix.fingerprint }}
+      retention_days: ${{ fromJSON(needs.plan.outputs.retention_days) }}
+      publish: ${{ github.event_name == 'schedule' || inputs.publish == true }}

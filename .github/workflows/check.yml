@@ -1,0 +1,29 @@
+name: Repository checks
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Test configuration and build helpers
+        run: |
+          python3 -m unittest discover -s tests -v
+          python3 -m py_compile scripts/build.py
+          while IFS= read -r script; do bash -n "$script"; done < <(find scripts legacy -name '*.sh' -type f)
+      - name: Validate GitHub Actions syntax
+        env:
+          ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+        run: |
+          tool_dir=$(mktemp -d)
+          curl --fail --location --retry 3 -o "$tool_dir/actionlint.tar.gz" https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz
+          echo "$ACTIONLINT_SHA256  $tool_dir/actionlint.tar.gz" | sha256sum -c -
+          tar -xzf "$tool_dir/actionlint.tar.gz" -C "$tool_dir" actionlint
+          "$tool_dir/actionlint" -shellcheck='' -pyflakes='' .github/workflows/*.yml

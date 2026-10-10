@@ -1,0 +1,209 @@
+#!/bin/sh
+# Manual, low-flash-space updater for the BE12 Pro. Nothing is installed until
+# the official archive, UPX output and a same-filesystem staging copy pass tests.
+set -eu
+
+usage() {
+    echo "Usage: owrt-core-update xray|adguardhome" >&2
+    exit 2
+}
+[ "$#" -eq 1 ] || usage
+case "$1" in
+    xray)
+        REPO=XTLS/Xray-core
+        ASSET=Xray-linux-arm64-v8a.zip
+        TARGET=/usr/bin/xray
+        SERVICE=/etc/init.d/passwall
+        ;;
+    adguardhome)
+        REPO=AdguardTeam/AdGuardHome
+        ASSET=AdGuardHome_linux_arm64.tar.gz
+        TARGET=/etc/AdGuardHome/AdGuardHome
+        SERVICE=/etc/init.d/AdGuardHome
+        ;;
+    *) usage ;;
+esac
+
+[ -x "$TARGET" ] || { echo "Not installed: $TARGET (nothing changed)" >&2; exit 1; }
+[ "$(uname -m)" = aarch64 ] || { echo 'Only Linux aarch64 is supported' >&2; exit 1; }
+for cmd in curl jsonfilter sha256sum upx awk wc unzip tar pidof; do
+    command -v "$cmd" >/dev/null 2>&1 || { echo "Missing dependency: $cmd" >&2; exit 1; }
+done
+
+# The unpacked Go program, release archive, UPX output, and old binary all
+# coexist in tmpfs. Do not let downloads spill into the tiny flash overlay.
+TMP_FREE=$(df -k /tmp | awk 'NR==2 {print $4}')
+[ "${TMP_FREE:-0}" -ge 102400 ] || { echo 'At least 100 MiB free /tmp is required' >&2; exit 1; }
+WORK=$(mktemp -d /tmp/owrt-core-update.XXXXXX)
+STAGED="${TARGET}.core-update-new"
+KEEP_WORK=0
+cleanup() {
+    [ "$KEEP_WORK" -eq 1 ] || rm -rf "$WORK"
+    # A failed download/copy must not leave another file consuming overlay.
+    [ -e "$STAGED" ] && rm -f "$STAGED"
+    return 0
+}
+trap cleanup EXIT
+trap 'exit 1' HUP INT TERM
+[ ! -e "$STAGED" ] || { echo "Remove leftover staging file after inspecting it: $STAGED" >&2; exit 1; }
+
+api_get() {
+    curl -fLsS --retry 2 --connect-timeout 15 --max-time 120 \
+        -H 'Accept: application/vnd.github+json' "$1" -o "$2"
+}
+field() { jsonfilter -i "$META" -e "${ROOT}${1}" 2>/dev/null || true; }
+META="$WORK/release.json"
+ROOT='@'
+
+if [ "$1" = xray ]; then
+    # Include prereleases, matching the firmware's official-Xray selection.
+    api_get "https://api.github.com/repos/$REPO/releases?per_page=100" "$WORK/releases.json"
+    BEST_DATE=''
+    BEST_INDEX=''
+    i=0
+    while [ "$i" -lt 100 ]; do
+        tag=$(jsonfilter -i "$WORK/releases.json" -e "@[$i].tag_name" 2>/dev/null || true)
+        [ -n "$tag" ] || break
+        pub=$(jsonfilter -i "$WORK/releases.json" -e "@[$i].published_at" 2>/dev/null || true)
+        draft=$(jsonfilter -i "$WORK/releases.json" -e "@[$i].draft" 2>/dev/null || true)
+        if [ "$draft" != true ] && [ -n "$pub" ] && [ "$pub" != null ] &&
+            { [ -z "$BEST_DATE" ] || [ "$pub" \> "$BEST_DATE" ]; }; then
+            BEST_DATE=$pub
+            BEST_INDEX=$i
+        fi
+        i=$((i + 1))
+    done
+    [ -n "$BEST_INDEX" ] || { echo 'No published Xray release' >&2; exit 1; }
+    META="$WORK/releases.json"
+    ROOT="@[$BEST_INDEX]"
+else
+    api_get "https://api.github.com/repos/$REPO/releases/latest" "$WORK/release.json"
+fi
+
+TAG=$(field '.tag_name')
+case "$TAG" in ''|*[!a-zA-Z0-9._+-]*) echo 'Invalid release tag' >&2; exit 1 ;; esac
+ASSET_URL=''
+DIGEST=''
+i=0
+while [ "$i" -lt 200 ]; do
+    name=$(field ".assets[$i].name")
+    [ -n "$name" ] || break
+    if [ "$name" = "$ASSET" ]; then
+        ASSET_URL=$(field ".assets[$i].browser_download_url")
+        DIGEST=$(field ".assets[$i].digest")
+        break
+    fi
+    i=$((i + 1))
+done
+case "$ASSET_URL" in
+    "https://github.com/$REPO/releases/download/$TAG/$ASSET") ;;
+    *) echo "Official asset $ASSET not ready for $TAG" >&2; exit 1 ;;
+esac
+case "$DIGEST" in sha256:*) EXPECTED=${DIGEST#sha256:} ;; *) echo 'Missing official SHA256 digest' >&2; exit 1 ;; esac
+[ "${#EXPECTED}" -eq 64 ] || { echo 'Invalid SHA256 digest' >&2; exit 1; }
+case "$EXPECTED" in *[!0-9a-f]*) echo 'Invalid SHA256 digest' >&2; exit 1 ;; esac
+
+echo "Downloading official $REPO $TAG to /tmp ..."
+curl -fLsS --retry 2 --connect-timeout 15 --max-time 600 "$ASSET_URL" -o "$WORK/archive"
+ACTUAL=$(sha256sum "$WORK/archive" | awk '{print $1}')
+[ "$ACTUAL" = "$EXPECTED" ] || { echo 'Release SHA256 mismatch; nothing changed' >&2; exit 1; }
+case "$1" in
+    xray) unzip -p "$WORK/archive" xray > "$WORK/unpacked" ;;
+    adguardhome) tar -xzOf "$WORK/archive" ./AdGuardHome/AdGuardHome > "$WORK/unpacked" ;;
+esac
+[ -s "$WORK/unpacked" ] || { echo 'Empty binary in release archive' >&2; exit 1; }
+chmod 755 "$WORK/unpacked"
+upx --best -o "$WORK/packed" "$WORK/unpacked"
+upx -t "$WORK/packed"
+chmod 755 "$WORK/packed"
+case "$1" in
+    xray) "$WORK/packed" -version ;;
+    adguardhome) "$WORK/packed" --version ;;
+esac
+
+# Backup in tmpfs only (safe for this one update; copy off-device separately
+# if a reboot-persistent backup is needed). Verify it before changing flash.
+cp "$TARGET" "$WORK/old"
+[ "$(sha256sum "$TARGET" | awk '{print $1}')" = "$(sha256sum "$WORK/old" | awk '{print $1}')" ] || {
+    echo 'Backup verification failed' >&2; exit 1;
+}
+ROLLBACK="$WORK/old"
+if upx --best -o "$WORK/old-packed" "$WORK/old" >/dev/null 2>&1; then
+    upx -t "$WORK/old-packed" >/dev/null
+    chmod 755 "$WORK/old-packed"
+    if { [ "$1" = xray ] && "$WORK/old-packed" -version >/dev/null 2>&1; } ||
+       { [ "$1" = adguardhome ] && "$WORK/old-packed" --version >/dev/null 2>&1; }; then
+        ROLLBACK="$WORK/old-packed"
+    fi
+fi
+NEED_K=$(( ($(wc -c < "$WORK/packed") + 1023) / 1024 + 4096 ))
+ROLLBACK_K=$(( ($(wc -c < "$ROLLBACK") + 1023) / 1024 + 2048 ))
+FREE_K=$(df -k "$(dirname "$TARGET")" | awk 'NR==2 {print $4}')
+[ "${FREE_K:-0}" -ge "$ROLLBACK_K" ] || {
+    echo "Cannot guarantee rollback: need ${ROLLBACK_K} KiB for old core, free ${FREE_K:-0} KiB" >&2
+    exit 1
+}
+[ "${FREE_K:-0}" -ge "$NEED_K" ] || {
+    echo "Insufficient flash to stage new core: need ${NEED_K} KiB, free ${FREE_K:-0} KiB" >&2
+    exit 1
+}
+echo "Staging compressed core at $STAGED (old binary still intact) ..."
+cp "$WORK/packed" "$STAGED"
+chmod 755 "$STAGED"
+[ "$(sha256sum "$WORK/packed" | awk '{print $1}')" = "$(sha256sum "$STAGED" | awk '{print $1}')" ] || {
+    echo 'Flash copy verification failed; old core untouched' >&2; exit 1;
+}
+case "$1" in
+    xray) "$STAGED" -version ;;
+    adguardhome) "$STAGED" --version ;;
+esac
+
+RUNNING=0
+case "$1" in
+    xray) pidof xray >/dev/null 2>&1 && RUNNING=1 ;;
+    adguardhome) pidof AdGuardHome >/dev/null 2>&1 && RUNNING=1 ;;
+esac
+# Preserve the verified rollback in /tmp if interrupted during the service switch.
+KEEP_WORK=1
+if [ "$RUNNING" -eq 1 ]; then
+    [ -x "$SERVICE" ] || { echo "Running core has no service script: $SERVICE" >&2; exit 1; }
+    "$SERVICE" stop || { echo 'Could not stop service; old core untouched' >&2; exit 1; }
+fi
+if ! mv -f "$STAGED" "$TARGET"; then
+    [ "$RUNNING" -eq 0 ] || "$SERVICE" start || true
+    echo 'Atomic replacement failed; old core remains' >&2
+    exit 1
+fi
+if [ "$RUNNING" -eq 1 ]; then
+    "$SERVICE" start || true
+    STARTED=0
+    for delay in 1 2 3; do
+        sleep 5
+        case "$1" in
+            xray) pidof xray >/dev/null 2>&1 && STARTED=1 ;;
+            adguardhome) pidof AdGuardHome >/dev/null 2>&1 && STARTED=1 ;;
+        esac
+        [ "$STARTED" -eq 0 ] || break
+    done
+    if [ "$STARTED" -eq 0 ]; then
+        echo 'Service did not stay running; restoring the old core ...' >&2
+        "$SERVICE" stop || true
+        # Remove the failed image before restoring: a full overlay cannot hold
+        # both the new binary and the rollback copy at once.
+        rm -f "$TARGET"
+        if cp "$ROLLBACK" "$STAGED" &&
+            [ "$(sha256sum "$ROLLBACK" | awk '{print $1}')" = "$(sha256sum "$STAGED" | awk '{print $1}')" ]; then
+            chmod 755 "$STAGED"
+            mv -f "$STAGED" "$TARGET"
+            "$SERVICE" start || true
+        else
+            KEEP_WORK=1
+            echo "Rollback failed! Backup preserved at $WORK/old; do NOT reboot." >&2
+        fi
+        [ "$KEEP_WORK" -eq 1 ] && echo "Rollback files: $WORK (tmpfs; do NOT reboot until recovered)" >&2
+        exit 1
+    fi
+fi
+KEEP_WORK=0
+echo "Updated $TARGET to $TAG (UPX packed); current overlay space:"
+df -h "$(dirname "$TARGET")"

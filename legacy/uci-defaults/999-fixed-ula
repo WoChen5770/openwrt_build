@@ -1,0 +1,12 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+# 在上游 991_set-network.sh 之后执行，避免固定 ULA 被其删除。
+# 全新刷机和保留配置升级后都使用此固定值；不修改其他网络选项。
+
+uci -q get network.globals >/dev/null ||
+	uci set network.globals='globals' || exit 1
+
+uci set network.globals.ula_prefix='fd11:2233:4455::/48' || exit 1
+uci commit network || exit 1
+
+exit 0
