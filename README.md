@@ -12,7 +12,6 @@
 
 </div>
 
-面向五个独立目标的 ImmortalWrt 构建仓库。沿用 [OpenWRT-CI](https://github.com/WoChen5770/OpenWRT-CI) 的插件与适配，统一中文 LuCI / shadcn，锁定源码与插件提交，并提供 SHA256 校验及构建记录。
 
 ## 机型与功能
 
