@@ -45,11 +45,11 @@ Wi-Fi/管理 IP 修改的是首次初始化生成器；保留配置升级时不�
 1. 提交本仓库至 GitHub，在 Actions 中启用工作流。
 2. 选择 **Build firmware → Run workflow**。
 3. 选择 `profile`（建议首次逐机型验证），保留 `force=true`。
-4. 如需 Release，勾选 `publish`；否则只保存 Actions Artifacts。
+4. `publish` 默认开启，各机型编译成功后独立发布 GitHub Release；取消勾选则只保存 Actions Artifacts。
 5. `source_commit` 可选：填写上游完整 40 位 SHA，仅允许单机型，不能用于 `all`。
 
 `Repository checks` 只运行本地逻辑测试，不编译固件。`Build firmware` 才执行实际编译。
-默认最多并行两个机型；每个机型同一时间只编译一个任务。不缓存跨版本 staging/toolchain，仅缓存下载与 ccache。
+五个机型可同时编译（`max_parallel=5`），各自使用独立 runner；实际启动速度受 GitHub 账户并发额度和 runner 可用性限制。每个机型同一时间只编译一个任务。不缓存跨版本 staging/toolchain，仅缓存下载与 ccache。
 首次完整构建耗时与磁盘占用较大；Ubuntu 24.04 标准 runner 可能因大型插件依赖耗尽磁盘，需要根据实际日志调整配置或换更大 runner，当前不删除 runner 的预装目录来腾空间。
 
 已开启每日北京时间 **04:15** 的源码更新检查（`build-settings.json` 中 `scheduled_builds=true`）。工作流文件提交到默认分支并启用 Actions 后才会生效，定时任务可能延迟，并非上游提交后立即触发。

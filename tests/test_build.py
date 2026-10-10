@@ -21,6 +21,13 @@ class BuildTests(unittest.TestCase):
         self.assertEqual(self.profiles['s20p-mtk']['device'], 'clx_s20p')
         self.assertEqual(self.profiles['s20p-mt76']['device'], 'supergateway_s20p')
 
+    def test_all_profiles_parallel_and_release_default(self):
+        settings = build.read_json(ROOT / 'build-settings.json')
+        self.assertEqual(settings['max_parallel'], len(self.profiles))
+        workflow = (ROOT / '.github/workflows/build.yml').read_text()
+        publish_input = workflow.split('      publish:', 1)[1].split('  schedule:', 1)[0]
+        self.assertIn('default: true', publish_input)
+
     def test_bandix_disabled_everywhere(self):
         for profile in self.profiles.values():
             config = build.config_for(profile)

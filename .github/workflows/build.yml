@@ -19,7 +19,7 @@ on:
       publish:
         description: 成功后发布 GitHub Release
         type: boolean
-        default: false
+        default: true
   schedule:
     - cron: '15 20 * * *'
 

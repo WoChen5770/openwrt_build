@@ -1,5 +1,5 @@
 {
   "scheduled_builds": true,
-  "max_parallel": 2,
+  "max_parallel": 5,
   "artifact_retention_days": 14
 }
