@@ -141,6 +141,10 @@ def required_for(profile_id, profile):
 def validate_config(profile_id, profile, content):
     values = merge_config([content])
     errors = ["Missing CONFIG_" + key + "=y" for key in sorted(required_for(profile_id, profile)) if values.get(key) != "y"]
+    # Vendor drivers have tristate/string/int platform settings, not just packages.
+    for key, expected_value in profile.get("expected_config", {}).items():
+        if values.get(key) != expected_value:
+            errors.append("Expected CONFIG_" + key + "=" + expected_value + "; got " + values.get(key, "<missing>"))
     forbidden = set(profile["forbidden"]) | {"PACKAGE_bandix", "PACKAGE_luci-app-bandix", "PACKAGE_wpad-mesh-openssl"}
     # Preserve exclusions after merging device and shared feature fragments.
     forbidden.update(key for key, value in config_for(profile).items() if key.startswith("PACKAGE_") and value == "n")

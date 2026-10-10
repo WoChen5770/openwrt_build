@@ -71,7 +71,24 @@
       "variant": "mtk-vendor",
       "legacy_name": "SUPERGATEWAY-S20P-MTK",
       "hostname": "SUPERGATEWAY-S20P-MTK",
-      "fragments": ["Config/GENERAL.txt", "Config/SUPERGATEWAY-S20P-MTK.txt", "configs/base.config", "configs/passwall-xray-only.config"],
+      "fragments": ["Config/GENERAL.txt", "Config/SUPERGATEWAY-S20P-MTK.txt", "configs/base.config", "configs/passwall-xray-only.config", "configs/mt7986-ax6000.config"],
+      "expected_config": {
+        "MTK_CONNINFRA_APSOC": "y",
+        "MTK_CONNINFRA_APSOC_MT7986": "y",
+        "CONNINFRA_EMI_SUPPORT": "y",
+        "MTK_FIRST_IF_MT7986": "y",
+        "MTK_CHIP_MT7986": "y",
+        "MTK_MT_WIFI": "m",
+        "MTK_MT_AP_SUPPORT": "m",
+        "MTK_WIFI_MODE_AP": "m",
+        "MTK_WHNAT_SUPPORT": "m",
+        "MTK_WARP_V2": "y",
+        "WARP_VERSION": "2",
+        "WARP_CHIPSET": "\"mt7986\"",
+        "MTK_WIFI_SKU_TYPE": "\"AX6000\"",
+        "MTK_WIFI_ADIE_TYPE": "\"mt7976\"",
+        "first_card_name": "\"MT7986\""
+      },
       "required": ["PACKAGE_kmod-mt_wifi", "PACKAGE_kmod-conninfra", "PACKAGE_kmod-warp", "PACKAGE_kmod-mediatek_hnat", "PACKAGE_mtwifi-cfg-ucode", "PACKAGE_luci-app-mtwifi-cfg", "PACKAGE_kmod-mmc"],
       "forbidden": ["PACKAGE_kmod-mt7915e", "PACKAGE_kmod-mt7996"]
     }
