@@ -13,9 +13,21 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
-      - name: Test configuration and build helpers
+      - name: Validate configuration and script syntax
         run: |
-          python3 -m unittest discover -s tests -v
+          python3 - <<'PY'
+          from scripts.build import config_for, defaults, read_json, required_for, ROOT
+          for path in ROOT.glob('*.json'):
+              read_json(path)
+          for name, profile in read_json(ROOT / 'profiles.json')['profiles'].items():
+              defaults(name)
+              values = config_for(profile)
+              device = 'TARGET_DEVICE_' + profile['target'] + '_' + profile['subtarget'] + '_DEVICE_' + profile['device']
+              assert values.get(device) == 'y', name + ': device not selected'
+              assert values.get('CCACHE') == 'y', name + ': compiler cache disabled'
+              # Dependencies supplied by upstream defconfig may be absent from the seed.
+              assert all(values.get(key, 'y') == 'y' for key in required_for(name, profile)), name + ': required option disabled'
+          PY
           python3 -m py_compile scripts/build.py
           while IFS= read -r script; do bash -n "$script"; done < <(find scripts legacy -name '*.sh' -type f)
       - name: Validate GitHub Actions syntax

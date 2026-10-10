@@ -190,7 +190,7 @@ def ci_hash():
     digest = hashlib.sha256()
     for path in sorted(ROOT.rglob("*")):
         rel = path.relative_to(ROOT)
-        if not path.is_file() or any(part in (".git", ".state", "out", "logs", "__pycache__", "openwrt") for part in rel.parts):
+        if not path.is_file() or any(part in (".git", ".state", "out", "logs", "__pycache__", "openwrt", "tests") for part in rel.parts):
             continue
         digest.update(str(rel).encode() + b"\0" + path.read_bytes() + b"\0")
     return digest.hexdigest()
