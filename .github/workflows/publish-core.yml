@@ -1,0 +1,43 @@
+name: Firmware release core
+
+on:
+  workflow_call:
+    inputs:
+      profile:
+        required: true
+        type: string
+      source_run_id:
+        required: true
+        type: string
+      source_run_attempt:
+        required: true
+        type: string
+
+concurrency:
+  group: release-${{ inputs.source_run_id }}-${{ inputs.source_run_attempt }}-${{ inputs.profile }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: firmware-${{ inputs.profile }}-${{ inputs.source_run_attempt }}
+          path: firmware/
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.source_run_id }}
+      - name: Verify provenance and publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PROFILE: ${{ inputs.profile }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          SOURCE_RUN_ATTEMPT: ${{ inputs.source_run_attempt }}
+        run: python3 scripts/release.py publish --directory firmware

@@ -28,7 +28,7 @@ jobs:
               # Dependencies supplied by upstream defconfig may be absent from the seed.
               assert all(values.get(key, 'y') == 'y' for key in required_for(name, profile)), name + ': required option disabled'
           PY
-          python3 -m py_compile scripts/build.py
+          python3 -m py_compile scripts/*.py
           while IFS= read -r script; do bash -n "$script"; done < <(find scripts legacy -name '*.sh' -type f)
       - name: Validate GitHub Actions syntax
         env:

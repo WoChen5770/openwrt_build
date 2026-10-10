@@ -50,6 +50,8 @@ BE6500、BE12 Pro、S20P MT76 和 x86 使用 [VIKINGYFY / immortalwrt](https://g
 
 Release 包含固件、`sha256sums`、配置、`build-info.json` 与 `packages.tar.gz`；Actions 产物保留 **14 天**。失败也保留诊断日志，不自动删除历史 Release。`packages.tar.gz` 不是在线软件源，内核模块须使用同次构建包，避免 ABI 不匹配。
 
+发布失败会自动复用成功产物补发，也可通过 **Recover firmware releases** 填写原任务 ID 手动补发，无需重新编译。Release 标签用于发布索引，实际构建提交记录在 `build-info.json` 与发布说明中。
+
 <details>
 <summary><strong>配置入口与刷写须知</strong></summary>
 
