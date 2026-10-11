@@ -6,6 +6,8 @@ CONFIG_PACKAGE_kmod-mt_wifi=y
 CONFIG_PACKAGE_kmod-conninfra=y
 CONFIG_PACKAGE_kmod-warp=y
 CONFIG_PACKAGE_kmod-mediatek_hnat=y
+# autocore/tempinfo reads vendor Wi-Fi temperatures through iwpriv.
+CONFIG_PACKAGE_wireless-tools=y
 # The vendor ucode stack conflicts with the traditional iwinfo CLI.
 CONFIG_PACKAGE_iwinfo=n
 CONFIG_PACKAGE_iwinfo-ucode=y
