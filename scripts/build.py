@@ -2,6 +2,7 @@
 """Plan, lock, integrate, validate and package builds; Python standard library only."""
 import argparse
 import concurrent.futures
+from datetime import datetime, timedelta, timezone
 import hashlib
 import ipaddress
 import json
@@ -111,12 +112,29 @@ def merge_config(fragments):
     return values
 
 
-def config_for(profile):
-    return merge_config([(ROOT / path).read_text() for path in profile["fragments"]])
+def config_for(profile, packages=""):
+    fragments = [(ROOT / path).read_text() for path in profile["fragments"]]
+    private = ROOT / "Config/PRIVATE.txt"
+    if private.is_file():
+        fragments.append(private.read_text())
+    fragments.append(package_overrides(packages))
+    return merge_config(fragments)
 
 
-def required_for(profile_id, profile):
-    values = config_for(profile)
+def package_overrides(content):
+    # Same PACKAGE input as OpenWRT-CI, but only package selections, never shell.
+    content = content.replace("\\n", "\n")
+    for line in content.splitlines():
+        line = line.strip()
+        if line.startswith("# CONFIG_") and not re.fullmatch(r"# CONFIG_PACKAGE_[A-Za-z0-9_+-]+ is not set", line):
+            raise ValueError("PACKAGE accepts only package selections")
+        if line and not line.startswith("#") and not re.fullmatch(r"CONFIG_PACKAGE_[A-Za-z0-9_+-]+=[ymn]", line):
+            raise ValueError("PACKAGE accepts only CONFIG_PACKAGE_name=y/m/n lines")
+    return content
+
+
+def required_for(profile_id, profile, values=None):
+    values = config_for(profile) if values is None else values
     required = set(profile["required"])
     required.update(("TARGET_" + profile["target"], "TARGET_" + profile["target"] + "_" + profile["subtarget"],
                      "TARGET_DEVICE_" + profile["target"] + "_" + profile["subtarget"] + "_DEVICE_" + profile["device"],
@@ -138,22 +156,25 @@ def required_for(profile_id, profile):
     return required
 
 
-def validate_config(profile_id, profile, content):
+def validate_config(profile_id, profile, content, selections=None):
     values = merge_config([content])
-    errors = ["Missing CONFIG_" + key + "=y" for key in sorted(required_for(profile_id, profile)) if values.get(key) != "y"]
+    selections = config_for(profile) if selections is None else selections
+    errors = ["Missing CONFIG_" + key + "=y" for key in sorted(required_for(profile_id, profile, selections)) if values.get(key) != "y"]
     # Vendor drivers have tristate/string/int platform settings, not just packages.
     for key, expected_value in profile.get("expected_config", {}).items():
         if values.get(key) != expected_value:
             errors.append("Expected CONFIG_" + key + "=" + expected_value + "; got " + values.get(key, "<missing>"))
     forbidden = set(profile["forbidden"]) | {"PACKAGE_bandix", "PACKAGE_luci-app-bandix", "PACKAGE_wpad-mesh-openssl"}
     # Preserve exclusions after merging device and shared feature fragments.
-    forbidden.update(key for key, value in config_for(profile).items() if key.startswith("PACKAGE_") and value == "n")
+    forbidden.update(key for key, value in selections.items() if key.startswith("PACKAGE_") and value == "n")
     if values.get("PACKAGE_luci-app-passwall") == "y":
         # Fail closed if upstream adds a new, enabled proxy backend.
         allowed = {"PACKAGE_luci-app-passwall_INCLUDE_Xray", "PACKAGE_luci-app-passwall_INCLUDE_Geoview",
                    "PACKAGE_luci-app-passwall_INCLUDE_V2ray_Geodata"}
         forbidden.update(key for key in values if key.startswith("PACKAGE_luci-app-passwall_INCLUDE_") and key not in allowed)
     errors += ["Forbidden CONFIG_" + key for key in sorted(forbidden) if values.get(key) in ("y", "m")]
+    errors += ["Forbidden QModem option: CONFIG_" + key for key, value in values.items()
+               if value in ("y", "m") and key.lower().startswith(("package_qmodem", "package_luci-app-qmodem", "package_luci-i18n-qmodem"))]
     expected = "TARGET_DEVICE_" + profile["target"] + "_" + profile["subtarget"] + "_DEVICE_" + profile["device"]
     if any(key.startswith("TARGET_DEVICE_") and value == "y" and key != expected for key, value in values.items()):
         errors.append("More than one device selected")
@@ -219,6 +240,11 @@ def source_marker(source):
     return "<!-- build-source:" + digest + " -->"
 
 
+def config_marker(values):
+    digest = hashlib.sha256(json.dumps(values, sort_keys=True).encode()).hexdigest()
+    return "<!-- build-config:" + digest + " -->"
+
+
 def plan(args):
     settings = read_json(ROOT / "build-settings.json")
     matrix = []
@@ -229,6 +255,10 @@ def plan(args):
         raise ValueError("Unknown profile")
     if args.commit and args.profile == "all":
         raise ValueError("A commit override requires a single profile")
+    overrides = package_overrides(getattr(args, "packages", ""))
+    owner = os.environ.get("GITHUB_REPOSITORY", "local/local").split("/", 1)[0]
+    if not re.fullmatch(r"[A-Za-z0-9-]+", owner):
+        raise ValueError("Invalid repository owner")
     if args.event != "schedule" or settings["scheduled_builds"]:
         defaults()
         known = []
@@ -248,10 +278,12 @@ def plan(args):
             if source_id not in source_commits:
                 source_commits[source_id] = resolve(source["repository"], source["branch"], args.commit)
             current_source = {**source, "commit": source_commits[source_id]}
-            if args.event == "schedule":
+            if args.event == "schedule" and not overrides:
                 # Releases arrive newest first. Compare the latest successful version per device.
                 latest = next((r for r in known if r["tag_name"].startswith(profile_id + "-")), None)
-                if latest and source_marker(current_source) in (latest.get("body") or ""):
+                if (latest and source_marker(current_source) in (latest.get("body") or "")
+                        and "<!-- build-ci:" + code_hash + " -->" in (latest.get("body") or "")
+                        and config_marker(config_for(profile)) in (latest.get("body") or "")):
                     print("Source unchanged: " + profile_id)
                     continue
             if source_id not in sources:
@@ -270,8 +302,11 @@ def plan(args):
                     package_commits[key] = resolve(*key)
                 selected[name] = {**package, "commit": package_commits[key]}
             lock = dict(profile_id=profile_id, profile=profile, source=sources[source_id], packages=selected,
-                        ci_hash=code_hash, defaults=defaults(profile_id))
-            if config_for(profile).get("PACKAGE_xray-core") == "y":
+                        ci_hash=code_hash, defaults=defaults(profile_id), config=config_for(profile, overrides),
+                        repository_owner=owner)
+            private = ROOT / "Config/PRIVATE.txt"
+            lock["requested_packages"] = merge_config([private.read_text() if private.is_file() else "", overrides])
+            if lock["config"].get("PACKAGE_xray-core") == "y":
                 lock["xray"] = xray_lock(profile_id)
             lock["fingerprint"] = hashlib.sha256(json.dumps(lock, sort_keys=True).encode()).hexdigest()
             marker = "<!-- build-fingerprint:" + lock["fingerprint"] + " -->"
@@ -438,6 +473,87 @@ def apply_defaults(tree, values, vendor=False):
             path.write_text(content)
 
 
+def remove_qmodem(tree):
+    """Prune matching recipes and feed links without following directory symlinks."""
+    for root in (tree / "package", tree / "feeds"):
+        for current, directories, files in os.walk(root, followlinks=False):
+            for name in directories[:] + files:
+                if not name.lower().startswith(("qmodem", "luci-app-qmodem", "luci-i18n-qmodem")):
+                    continue
+                path = Path(current) / name
+                if path.is_symlink() or path.is_file():
+                    path.unlink()
+                else:
+                    shutil.rmtree(path)
+                if name in directories:
+                    directories.remove(name)
+                print("Removed QModem: " + str(path.relative_to(tree)))
+
+
+def build_identity(lock):
+    started = datetime.now(timezone.utc)
+    return dict(repository_owner=lock["repository_owner"],
+                built_at=started.isoformat(timespec="seconds").replace("+00:00", "Z"),
+                build_date=started.astimezone(timezone(timedelta(hours=8))).strftime("%y.%m.%d-%H.%M.%S"),
+                profile_id=lock["profile_id"], ci_commit=os.environ.get("GITHUB_SHA", "local"),
+                run_id=os.environ.get("GITHUB_RUN_ID", "local"), run_attempt=os.environ.get("GITHUB_RUN_ATTEMPT", "1"))
+
+
+def customize_luci(tree, values, identity):
+    root = tree / "feeds/luci"
+    status_files = list((root / "modules/luci-mod-status").rglob("10_system.js"))
+    flash_files = list((root / "modules/luci-mod-system").rglob("flash.js"))
+    if not status_files or not flash_files:
+        raise ValueError("LuCI status/upgrade modules are missing")
+    for path in status_files:
+        anchor = "(luciversion || '')"
+        content = path.read_text()
+        if content.count(anchor) != 1:
+            raise ValueError("LuCI firmware version anchor changed upstream")
+        stamp = " / " + identity["repository_owner"] + "-" + identity["build_date"]
+        path.write_text(content.replace(anchor, anchor + " + " + json.dumps(stamp)))
+    for path in flash_files:
+        content, count = re.subn(r"(['\"])192\.168\.\d+\.\d+\1",
+                                lambda m: m[1] + values["lan_ip"] + m[1], path.read_text())
+        if not count:
+            raise ValueError("LuCI default reconnect IP changed upstream")
+        path.write_text(content)
+    # Remove just the dependency token, preserving other packages and continuations.
+    for path in (root / "collections").rglob("Makefile"):
+        content = re.sub(r"\+(?:[^\s+]*:)?luci-app-attendedsysupgrade(?=[\s\\]|$)", "", path.read_text())
+        path.write_text(content)
+
+
+def cache_plan(args):
+    lock, tree = read_json(args.lock), Path(args.source)
+    # These Git tree IDs change whenever host/toolchain build rules change. Feed
+    # and custom recipe commits also isolate hostpkg builds. Never cache target/.
+    objects = {name: run("git", "rev-parse", "HEAD:" + name, cwd=tree)
+               for name in ("tools", "toolchain", "include", "config", "scripts", "package", "Makefile", "rules.mk")}
+    compatibility = dict(source={k: lock["source"][k] for k in ("repository", "branch", "feeds")},
+                         config=lock["config"], packages=lock["packages"], objects=objects, ci_hash=lock["ci_hash"],
+                         host=dict(image=os.environ.get("ImageVersion", "unknown"),
+                                   compiler=run("gcc", "--version"), linker=run("ld", "--version")))
+    digest = hashlib.sha256(json.dumps(compatibility, sort_keys=True).encode()).hexdigest()[:24]
+    prefix = "toolchain-v1-Linux-ubuntu24-" + lock["profile_id"] + "-" + digest + "-"
+    key = prefix + lock["source"]["commit"] + "-" + os.environ["GITHUB_RUN_ID"] + "-" + os.environ["GITHUB_RUN_ATTEMPT"]
+    with open(args.github_output, "a") as output:
+        output.write("prefix=" + prefix + "\nkey=" + key + "\n")
+
+
+def refresh_toolchain_cache(tree):
+    for root in (tree / "staging_dir").glob("*"):
+        if root.is_symlink() or not root.is_dir() or not root.name.startswith(("host", "toolchain-")):
+            continue
+        for stamp in root.rglob("stamp"):
+            if stamp.is_dir():
+                for path in stamp.rglob("*"):
+                    if path.is_file() and not path.is_symlink():
+                        path.touch()
+    (tree / "tmp").mkdir(exist_ok=True)
+    (tree / "tmp/.build").write_text("1\n")
+
+
 def prepare(args):
     lock = read_json(args.lock)
     if lock["ci_hash"] != ci_hash():
@@ -453,12 +569,37 @@ def prepare(args):
             raise ValueError("Feed checkout mismatch: " + feed["name"])
     run("./scripts/feeds", "install", "-a", cwd=tree)
     integrate(lock, tree)
+    identity = build_identity(lock)
+    private = ROOT / "Scripts/PRIVATE.sh"
+    if private.is_file():
+        print("Applying trusted Scripts/PRIVATE.sh")
+        env = {**os.environ, "GITHUB_WORKSPACE": str(ROOT), "WRT_CONFIG": lock["profile"]["legacy_name"],
+               "WRT_TARGET": lock["profile"]["target"], "WRT_SUBTARGET": lock["profile"]["subtarget"],
+               "WRT_IP": lock["defaults"]["lan_ip"], "WRT_MARK": identity["repository_owner"],
+               "WRT_DATE": identity["build_date"], "WRT_BRANCH": lock["source"]["branch"],
+               "WRT_INFO": lock["profile"]["source"]}
+        env.pop("GH_TOKEN", None)
+        env.pop("GITHUB_TOKEN", None)
+        run("bash", str(private), cwd=tree, env=env)
+    remove_qmodem(tree)
     apply_defaults(tree, lock["defaults"], lock["profile"]["source"] == "chasey")
-    values = config_for(lock["profile"])
+    customize_luci(tree, lock["defaults"], identity)
+    write_json(tree / ".build-identity.json", identity)
+    write_json(tree / "files/usr/share/openwrt-build/build-info.json", identity)
+    values = lock["config"]
     content = "".join("CONFIG_" + key + "=" + value + "\n" for key, value in values.items())
     (tree / ".config").write_text(content)
     run("make", "defconfig", cwd=tree)
-    validate_config(lock["profile_id"], lock["profile"], (tree / ".config").read_text())
+    actual = (tree / ".config").read_text()
+    validate_config(lock["profile_id"], lock["profile"], actual, values)
+    actual_values = merge_config([actual])
+    missing = [key for key, value in lock["requested_packages"].items()
+               if value in ("y", "m") and actual_values.get(key) not in (value, "y")]
+    if missing:
+        raise ValueError("Private/temporary options not selected: " + ", ".join(missing))
+    if getattr(args, "toolchain_cache", False):
+        refresh_toolchain_cache(tree)
+        run("make", "clean", cwd=tree)
     print("Configuration verified: " + lock["profile_id"])
 
 
@@ -525,11 +666,13 @@ def validate_mtk_sysupgrade(path):
         raise ValueError("MTK wireless files missing from image: " + ", ".join(missing))
 
 
-def release_notes(lock):
+def release_notes(lock, identity=None, config_name="Config-*.txt"):
     profile, values, source = lock["profile"], lock["defaults"], lock["source"]
     label = profile.get("display_name", lock["profile_id"])
     repository = source["repository"].removesuffix(".git")
     notes = "ImmortalWrt · " + label + "\n\n"
+    if identity:
+        notes += "构建：`" + identity["repository_owner"] + "` · 北京时间 `" + identity["build_date"] + "`（编译开始）。\n\n"
     notes += "### 开始使用\n\n| 项目 | 默认设置 |\n| :--- | :--- |\n"
     notes += "| 管理入口 | `" + values["lan_ip"] + "` · HTTP / HTTPS |\n"
     notes += "| 登录 | `root` · " + ("已设密码" if values.get("root_password_hash") else "空密码") + " |\n"
@@ -547,9 +690,11 @@ def release_notes(lock):
         notes += "\n"
     notes += "\n<details>\n<summary>源码与文件</summary>\n\n"
     notes += "源码：[" + source["branch"] + " · " + source["commit"][:7] + "](" + repository + "/commit/" + source["commit"] + ")。\n\n"
-    notes += "校验：`sha256sums` · 配置：`config.full` / `config.diff` · 构建记录：`build-info.json`。\n\n"
-    notes += "`packages.tar.gz` 为同次构建的软件包归档，不是在线软件源；内核模块须匹配 ABI。\n\n</details>\n\n"
+    notes += "校验：`sha256sums` · 完整配置：`" + config_name + "` · 包清单：`*.manifest` · 构建记录：`build-info.json`。\n\n"
+    notes += "其余构建诊断保存在 Actions 的 logs 附件中。\n\n</details>\n\n"
     notes += "<!-- build-fingerprint:" + lock["fingerprint"] + " -->\n"
+    notes += "<!-- build-ci:" + lock["ci_hash"] + " -->\n"
+    notes += config_marker(lock["config"]) + "\n"
     return notes + source_marker(source) + "\n"
 
 
@@ -559,7 +704,10 @@ def collect(args):
     output = Path(args.output_dir)
     profile = lock["profile"]
     target = tree / "bin/targets" / profile["target"] / profile["subtarget"]
-    validate_config(lock["profile_id"], profile, (tree / ".config").read_text())
+    validate_config(lock["profile_id"], profile, (tree / ".config").read_text(), lock["config"])
+    identity = read_json(tree / ".build-identity.json")
+    if identity["profile_id"] != lock["profile_id"]:
+        raise ValueError("Build identity profile mismatch")
     manifest = validate_image_packages(target, profile, lock["profile_id"])
     if lock["profile_id"] == "s20p-mtk":
         sysupgrades = list(target.glob("*" + profile["image_match"] + "*sysupgrade*.bin"))
@@ -567,35 +715,41 @@ def collect(args):
             raise ValueError("Expected one S20P MTK sysupgrade image")
         validate_mtk_sysupgrade(sysupgrades[0])
     output.mkdir(parents=True, exist_ok=True)
+    if any(output.iterdir()):
+        raise ValueError("Collection output must be empty")
+    stamp = lock["profile_id"] + "-" + identity["build_date"] + "-r" + identity["run_id"] + "-" + identity["run_attempt"]
+    diagnostics = ROOT / "logs/metadata"
+    diagnostics.mkdir(parents=True, exist_ok=True)
     images = []
     for path in sorted(target.iterdir()):
         if not path.is_file():
             continue
-        is_image = profile["image_match"] in path.name and (
+        is_image = profile["image_match"] in path.name and path.name.endswith(IMAGE_EXTENSIONS) and (
             any(s in path.name for s in ("sysupgrade", "factory", "initramfs")) or
             (profile["target"] == "x86" and re.search(r"\.(img(?:\.gz)?|vmdk|vdi|qcow2)$", path.name)))
         if is_image:
-            shutil.copy2(path, output / path.name)
-            images.append(path.name)
-        elif path == manifest or (path.suffix == ".manifest" and profile["image_match"] in path.name) or path.name.endswith((".buildinfo", ".json")):
-            shutil.copy2(path, output / path.name)
+            name = dated_filename(path.name, stamp)
+            shutil.copy2(path, output / name)
+            images.append(name)
+        elif path.name.endswith((".buildinfo", ".json")):
+            shutil.copy2(path, diagnostics / path.name)
     if not images:
         raise ValueError("No matching firmware images produced")
-    shutil.copy2(tree / ".config", output / "config.full")
-    (output / "config.seed").write_text("".join((ROOT / p).read_text() + "\n" for p in profile["fragments"]))
-    (output / "config.diff").write_text(run("./scripts/diffconfig.sh", cwd=tree) + "\n")
-    with tarfile.open(output / "packages.tar.gz", "w:gz") as archive:
-        for path in (target / "packages", tree / "bin/packages"):
-            if path.is_dir():
-                archive.add(path, arcname=str(path.relative_to(tree / "bin")))
-    info = {**lock, "ci_commit": os.environ.get("GITHUB_SHA", "local"), "run_id": os.environ.get("GITHUB_RUN_ID", "local"),
-            "run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT", "1"),
-            "images": images, "built_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+    config_name = "Config-" + stamp + ".txt"
+    shutil.copy2(tree / ".config", output / config_name)
+    shutil.copy2(manifest, output / (stamp + ".manifest"))
+    (diagnostics / "config.seed").write_text("".join("CONFIG_" + key + "=" + value + "\n" for key, value in lock["config"].items()))
+    (diagnostics / "config.diff").write_text(run("./scripts/diffconfig.sh", cwd=tree) + "\n")
+    assets = sorted(p.name for p in output.iterdir()) + ["build-info.json", "sha256sums"]
+    info = {**{k: v for k, v in lock.items() if k not in ("config", "requested_packages")}, **identity,
+            "images": images, "release_assets": assets,
+            "completed_at": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")}
     write_json(output / "build-info.json", info)
-    (output / "release-notes.md").write_text(release_notes(lock))
+    (output / "release-notes.md").write_text(release_notes(lock, identity, config_name))
     checksums = []
-    for path in sorted(output.iterdir()):
-        if path.is_file() and path.name != "sha256sums":
+    for name in sorted(assets):
+        path = output / name
+        if name != "sha256sums":
             digest = hashlib.sha256()
             with path.open("rb") as stream:
                 for block in iter(lambda: stream.read(1024 * 1024), b""):
@@ -604,12 +758,25 @@ def collect(args):
     (output / "sha256sums").write_text("".join(checksums))
 
 
+IMAGE_EXTENSIONS = (".img.gz", ".tar.gz", ".bin", ".itb", ".img", ".vmdk", ".vdi", ".qcow2",
+                    ".tar", ".ubi", ".trx", ".chk", ".elf", ".uImage", ".fit")
+
+
+def dated_filename(name, stamp):
+    # Keep multi-part image extensions intact, e.g. .img.gz and .tar.gz.
+    suffix = "".join(Path(name).suffixes)
+    # Some source names contain dots in version numbers; only use known endings.
+    ending = next((s for s in IMAGE_EXTENSIONS if name.endswith(s)), suffix)
+    return name[:-len(ending)] + "-" + stamp + ending if ending else name + "-" + stamp
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
     p = sub.add_parser("plan")
     p.add_argument("--profile", default="all")
     p.add_argument("--commit")
+    p.add_argument("--packages", default="")
     p.add_argument("--event", default="workflow_dispatch")
     p.add_argument("--force", action="store_true")
     p.add_argument("--output-dir", default=".state")
@@ -620,8 +787,14 @@ def main():
         p.add_argument("--lock", required=True)
         if name == "collect":
             p.add_argument("--output-dir", default="out")
+        else:
+            p.add_argument("--toolchain-cache", action="store_true")
+    p = sub.add_parser("cache-plan")
+    p.add_argument("--source", required=True)
+    p.add_argument("--lock", required=True)
+    p.add_argument("--github-output", required=True)
     args = parser.parse_args()
-    {"plan": plan, "prepare": prepare, "collect": collect}[args.command](args)
+    {"plan": plan, "prepare": prepare, "collect": collect, "cache-plan": cache_plan}[args.command](args)
 
 
 if __name__ == "__main__":

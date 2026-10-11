@@ -110,6 +110,32 @@ def validate_info(info, run, profile, attempt=None):
         raise ValueError('Artifact belongs to a different compilation attempt')
 
 
+def release_assets(directory, info):
+    names = info.get('release_assets')
+    if names is None:
+        # Older successful artifacts remain recoverable after this migration.
+        return sorted(p for p in directory.iterdir() if p.is_file())
+    if (not isinstance(names, list) or not all(isinstance(name, str) for name in names)
+            or len(names) != len(set(names))
+            or not {'build-info.json', 'sha256sums'}.issubset(names)):
+        raise ValueError('Invalid release asset list')
+    for name in names:
+        if name in ('.', '..', 'release-notes.md') or Path(name).name != name or '\\' in name:
+            raise ValueError('Unsafe release asset name')
+        path = directory / name
+        if path.is_symlink() or not path.is_file():
+            raise ValueError('Release asset missing: ' + name)
+    checksum_names = []
+    for line in (directory / 'sha256sums').read_text().splitlines():
+        match = re.fullmatch(r'[0-9a-f]{64}  (.+)', line)
+        if not match:
+            raise ValueError('Invalid checksum entry')
+        checksum_names.append(match[1])
+    if set(checksum_names) != set(names) - {'sha256sums'} or len(checksum_names) != len(set(checksum_names)):
+        raise ValueError('Checksums do not cover exactly the public release assets')
+    return sorted(directory / name for name in names)
+
+
 def publish(directory):
     repository, repo, run = context()
     profile = os.environ['PROFILE']
@@ -119,9 +145,10 @@ def publish(directory):
         raise ValueError('Invalid profile')
     verify_build(repository, run, profile, attempt)
     directory = directory.resolve()
-    subprocess.run(['sha256sum', '-c', 'sha256sums'], cwd=directory, check=True)
     info = json.loads((directory / 'build-info.json').read_text())
     validate_info(info, run, profile, attempt)
+    assets = release_assets(directory, info)
+    subprocess.run(['sha256sum', '-c', 'sha256sums'], cwd=directory, check=True)
     marker = '<!-- build-fingerprint:' + info['fingerprint'] + ' -->'
     notes = (directory / 'release-notes.md').read_text()
     if marker not in notes:
@@ -133,7 +160,6 @@ def publish(directory):
     tag = profile + '-r' + str(run['id']) + '-' + attempt
     existing = subprocess.run(['gh', 'api', 'repos/' + repository + '/releases/tags/' + tag],
                               capture_output=True, text=True)
-    assets = sorted(p for p in directory.iterdir() if p.is_file())
     if existing.returncode == 0:
         release = json.loads(existing.stdout)
         if marker not in (release['body'] or ''):

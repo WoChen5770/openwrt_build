@@ -29,7 +29,7 @@ CONFIG_PACKAGE_luci-app-partexp=n
 CONFIG_PACKAGE_luci-app-fm350=n
 CONFIG_PACKAGE_luci-app-mt5700=n
 CONFIG_PACKAGE_luci-app-mt5700m=n
-#完全禁用 QModem（源码及 feeds 残留由 Packages.sh 一并移除）
+#完全禁用 QModem（源码及 feeds 链接由 scripts/build.py 一并移除）
 CONFIG_PACKAGE_qmodem=n
 CONFIG_PACKAGE_luci-app-qmodem=n
 CONFIG_PACKAGE_luci-app-qmodem-next=n

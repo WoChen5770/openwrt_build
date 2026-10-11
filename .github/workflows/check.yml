@@ -17,6 +17,8 @@ jobs:
         run: |
           python3 - <<'PY'
           from scripts.build import config_for, defaults, read_json, required_for, ROOT
+          from scripts.cleanup import settings
+          settings()
           for path in ROOT.glob('*.json'):
               read_json(path)
           for name, profile in read_json(ROOT / 'profiles.json')['profiles'].items():
@@ -32,6 +34,7 @@ jobs:
           python3 -m py_compile scripts/*.py
           python3 -m unittest discover -s tests -v
           while IFS= read -r script; do bash -n "$script"; done < <(find scripts legacy -name '*.sh' -type f)
+          if [[ -f Scripts/PRIVATE.sh ]]; then bash -n Scripts/PRIVATE.sh; fi
       - name: Validate GitHub Actions syntax
         env:
           ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8

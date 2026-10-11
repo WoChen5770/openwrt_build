@@ -89,16 +89,32 @@ jobs:
           restore-keys: |
             firmware-${{ runner.os }}-${{ inputs.profile }}-${{ inputs.fingerprint }}-
             firmware-${{ runner.os }}-${{ inputs.profile }}-
+      - name: Identify compatible host and toolchain cache
+        id: toolchain-key
+        run: python3 scripts/build.py cache-plan --source "$SOURCE_DIR" --lock ".state/$FIRMWARE_PROFILE.json" --github-output "$GITHUB_OUTPUT"
+      - name: Restore host and toolchain cache
+        id: toolchain-cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ${{ env.SOURCE_DIR }}/staging_dir/host*
+            ${{ env.SOURCE_DIR }}/staging_dir/toolchain-*
+          key: ${{ steps.toolchain-key.outputs.key }}
+          restore-keys: ${{ steps.toolchain-key.outputs.prefix }}
       - name: Configure compiler cache
         run: |
           mkdir -p "$CCACHE_DIR"
           ccache --max-size="$CCACHE_MAXSIZE"
           ccache --zero-stats
       - name: Integrate plugins and verify defconfig
+        env:
+          TOOLCHAIN_RESTORED: ${{ steps.toolchain-cache.outputs.cache-matched-key }}
         run: |
           set -euo pipefail
           mkdir -p logs
-          python3 scripts/build.py prepare --source "$SOURCE_DIR" --lock ".state/$FIRMWARE_PROFILE.json" 2>&1 | tee logs/prepare.log
+          args=()
+          if [[ -n "$TOOLCHAIN_RESTORED" ]]; then args+=(--toolchain-cache); fi
+          python3 scripts/build.py prepare --source "$SOURCE_DIR" --lock ".state/$FIRMWARE_PROFILE.json" "${args[@]}" 2>&1 | tee logs/prepare.log
       - name: Compile with serial diagnostic retry
         id: compile
         run: bash scripts/compile.sh "$SOURCE_DIR" "$GITHUB_WORKSPACE/logs"
@@ -110,7 +126,15 @@ jobs:
             ${{ env.CCACHE_DIR }}
             ${{ env.SOURCE_DIR }}/dl
           key: ${{ steps.build-cache.outputs.cache-primary-key }}
-      - name: Collect firmware, packages and provenance
+      - name: Save successful host and toolchain cache
+        continue-on-error: true
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ${{ env.SOURCE_DIR }}/staging_dir/host*
+            ${{ env.SOURCE_DIR }}/staging_dir/toolchain-*
+          key: ${{ steps.toolchain-key.outputs.key }}
+      - name: Collect firmware and provenance
         id: collect
         run: |
           set -euo pipefail

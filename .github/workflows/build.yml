@@ -12,6 +12,10 @@ on:
         description: 可选上游完整提交 SHA（仅单机型）
         type: string
         default: ''
+      packages:
+        description: 临时选包（CONFIG_PACKAGE_name=y/m/n，多行或用字面量 \n 分隔）
+        type: string
+        default: ''
       force:
         description: 即使源码与配置未变也重新编译
         type: boolean
@@ -48,8 +52,9 @@ jobs:
           SOURCE_COMMIT: ${{ inputs.source_commit }}
           FORCE: ${{ inputs.force }}
           EVENT_NAME: ${{ github.event_name }}
+          PACKAGES: ${{ inputs.packages }}
         run: |
-          args=(--profile "$PROFILE" --event "$EVENT_NAME" --github-output "$GITHUB_OUTPUT")
+          args=(--profile "$PROFILE" --event "$EVENT_NAME" --packages "$PACKAGES" --github-output "$GITHUB_OUTPUT")
           if [[ -n "$SOURCE_COMMIT" ]]; then args+=(--commit "$SOURCE_COMMIT"); fi
           if [[ "$FORCE" == true ]]; then args+=(--force); fi
           python3 scripts/build.py plan "${args[@]}"

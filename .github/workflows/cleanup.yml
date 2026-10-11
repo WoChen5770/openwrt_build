@@ -1,0 +1,36 @@
+name: Clean old releases and caches
+
+on:
+  schedule:
+    - cron: '30 18 * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 只列出候选项，不删除
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: firmware-cleanup
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Clean only recognized project releases and caches
+        env:
+          GH_TOKEN: ${{ github.token }}
+          APPLY: ${{ github.event_name == 'schedule' || inputs.dry_run == false }}
+        run: |
+          args=()
+          if [[ "$APPLY" == true ]]; then args+=(--apply); fi
+          python3 scripts/cleanup.py "${args[@]}"
