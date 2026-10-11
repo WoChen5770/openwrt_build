@@ -46,8 +46,11 @@ def plan():
     successful, failed_publish = set(), set()
     for page in pages:
         for job in page['jobs']:
-            # Nested reusable publishers append another " / publish" to the job name.
-            match = re.match(r'^build \(([^,]+),.*? / (compile|publish)(?: / publish)?$', job['name'])
+            # Explicit matrix names omit SHAs; retain support for historical runs.
+            # Nested reusable publishers append another " / publish".
+            match = re.fullmatch(r'([a-z0-9-]+) / (compile|publish)(?: / publish)?', job['name'])
+            if not match:
+                match = re.match(r'^build \(([^,]+),.*? / (compile|publish)(?: / publish)?$', job['name'])
             if match and match[2] == 'compile' and job['conclusion'] == 'success':
                 successful.add(match[1])
             if match and match[2] == 'publish' and job['conclusion'] == 'failure':

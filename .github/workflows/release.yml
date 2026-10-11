@@ -40,6 +40,7 @@ jobs:
           AUTO_RECOVER: ${{ github.event_name == 'workflow_run' }}
         run: python3 scripts/release.py plan
   publish:
+    name: ${{ matrix.profile }}
     needs: plan
     if: needs.plan.outputs.has_releases == 'true'
     permissions:

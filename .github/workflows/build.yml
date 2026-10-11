@@ -61,6 +61,7 @@ jobs:
           retention-days: 14
           if-no-files-found: error
   build:
+    name: ${{ matrix.profile }}
     needs: plan
     if: needs.plan.outputs.has_builds == 'true'
     permissions:
