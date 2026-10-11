@@ -32,6 +32,14 @@ test -f "$MESH_TMP/source/root/etc/config/mesh"
 patch --batch --forward --fuzz=0 -d "$MESH_TMP/source" -p1 \
 	< "$GITHUB_WORKSPACE/legacy/Patches/mesh-wpad-openssl.patch"
 
+# The vendor stack provides the iwinfo command through iwinfo-ucode.
+# A dependency on traditional iwinfo would force it back on during defconfig,
+# excluding iwinfo-ucode and the complete MTK wireless configuration stack.
+if [ "$WRT_CONFIG" = SUPERGATEWAY-S20P-MTK ]; then
+	patch --batch --forward --fuzz=0 -d "$MESH_TMP/source" -p1 \
+		< "$GITHUB_WORKSPACE/legacy/Patches/mesh-iwinfo-ucode.patch"
+fi
+
 # Fetch and validate first; remove only exact-name packages and feeds links.
 find ./package ./feeds/luci ./feeds/packages -maxdepth 3 \
 	\( -type d -o -type l \) -name luci-app-mesh -prune -exec rm -rf -- {} +
