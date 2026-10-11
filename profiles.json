@@ -11,6 +11,7 @@
   },
   "profiles": {
     "xiaomi-be6500": {
+      "display_name": "Xiaomi BE6500",
       "source": "viking",
       "target": "qualcommbe",
       "subtarget": "ipq53xx",
@@ -24,6 +25,7 @@
       "forbidden": ["PACKAGE_kmod-mt_wifi"]
     },
     "tenda-be12-pro": {
+      "display_name": "Tenda BE12 Pro",
       "source": "viking",
       "target": "mediatek",
       "subtarget": "filogic",
@@ -37,6 +39,7 @@
       "forbidden": ["PACKAGE_kmod-mt_wifi"]
     },
     "s20p-mt76": {
+      "display_name": "S20P · MT76",
       "source": "viking",
       "target": "mediatek",
       "subtarget": "filogic",
@@ -44,12 +47,13 @@
       "image_match": "supergateway_s20p",
       "variant": "mt76",
       "legacy_name": "SUPERGATEWAY-S20P-MT76",
-      "hostname": "SUPERGATEWAY-S20P-MT76",
+      "hostname": "S20P",
       "fragments": ["Config/GENERAL.txt", "Config/SUPERGATEWAY-S20P-MT76.txt", "configs/base.config", "configs/passwall-xray-only.config"],
       "required": ["PACKAGE_kmod-mt7915e", "PACKAGE_kmod-mt7986-firmware", "PACKAGE_kmod-mmc"],
       "forbidden": ["PACKAGE_kmod-mt_wifi"]
     },
     "x86-64": {
+      "display_name": "x86-64",
       "source": "viking",
       "target": "x86",
       "subtarget": "64",
@@ -63,6 +67,7 @@
       "forbidden": ["PACKAGE_kmod-mt_wifi", "PACKAGE_kmod-ath12k", "PACKAGE_kmod-mt7915e"]
     },
     "s20p-mtk": {
+      "display_name": "S20P · MTK",
       "source": "chasey",
       "target": "mediatek",
       "subtarget": "filogic",
@@ -70,7 +75,7 @@
       "image_match": "clx_s20p",
       "variant": "mtk-vendor",
       "legacy_name": "SUPERGATEWAY-S20P-MTK",
-      "hostname": "SUPERGATEWAY-S20P-MTK",
+      "hostname": "S20P",
       "fragments": ["Config/GENERAL.txt", "Config/SUPERGATEWAY-S20P-MTK.txt", "configs/base.config", "configs/passwall-xray-only.config", "configs/mt7986-ax6000.config"],
       "expected_config": {
         "MTK_CONNINFRA_APSOC": "y",
@@ -89,8 +94,9 @@
         "MTK_WIFI_ADIE_TYPE": "\"mt7976\"",
         "first_card_name": "\"MT7986\""
       },
-      "required": ["PACKAGE_kmod-mt_wifi", "PACKAGE_kmod-conninfra", "PACKAGE_kmod-warp", "PACKAGE_kmod-mediatek_hnat", "PACKAGE_mtwifi-cfg-ucode", "PACKAGE_luci-app-mtwifi-cfg", "PACKAGE_kmod-mmc"],
-      "forbidden": ["PACKAGE_kmod-mt7915e", "PACKAGE_kmod-mt7996"]
+      "required": ["PACKAGE_kmod-mt_wifi", "PACKAGE_kmod-conninfra", "PACKAGE_kmod-warp", "PACKAGE_kmod-mediatek_hnat", "PACKAGE_mtwifi-cfg-ucode", "PACKAGE_luci-app-mtwifi-cfg", "PACKAGE_iwinfo-ucode", "PACKAGE_ucode-mod-iwinfo", "PACKAGE_ucode-mod-datconf", "PACKAGE_ucode-mod-l1parser", "PACKAGE_wifi-scripts", "PACKAGE_kmod-mmc"],
+      "required_image_packages": ["kmod-mt_wifi", "kmod-conninfra", "kmod-warp", "kmod-mediatek_hnat", "kmod-mmc", "wifi-dats", "wifi-scripts", "mtwifi-cfg-ucode", "luci-app-mtwifi-cfg", "iwinfo-ucode", "ucode-mod-iwinfo", "ucode-mod-datconf", "ucode-mod-l1parser"],
+      "forbidden": ["PACKAGE_kmod-mt7915e", "PACKAGE_kmod-mt7996", "PACKAGE_iwinfo"]
     }
   }
 }

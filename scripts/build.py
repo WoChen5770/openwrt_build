@@ -457,13 +457,89 @@ def prepare(args):
     print("Configuration verified: " + lock["profile_id"])
 
 
+def validate_image_packages(target, profile):
+    required = set(profile.get("required_image_packages", []))
+    if not required:
+        return
+    manifests = list(target.glob("*" + profile["image_match"] + "*.manifest"))
+    if len(manifests) != 1:
+        raise ValueError("Expected one device package manifest")
+    installed = {line.split()[0] for line in manifests[0].read_text().splitlines() if line.strip()}
+    missing = sorted(required - installed)
+    if missing:
+        raise ValueError("Firmware is missing packages: " + ", ".join(missing))
+
+
+def validate_mtk_sysupgrade(path):
+    # Inspect the actual SquashFS, not just Kconfig or the package manifest.
+    with tempfile.TemporaryDirectory(prefix="owrt-image-check-") as temporary:
+        root = Path(temporary) / "root.squashfs"
+        with tarfile.open(path) as archive:
+            members = [m for m in archive.getmembers() if m.isfile() and m.name.endswith("/root")]
+            if len(members) != 1:
+                raise ValueError("Expected one sysupgrade root filesystem")
+            with archive.extractfile(members[0]) as source, root.open("wb") as destination:
+                shutil.copyfileobj(source, destination)
+        listing = run("unsquashfs", "-ll", str(root))
+    files = {line.split()[-1].removeprefix("squashfs-root/")
+             for line in listing.splitlines() if line.startswith("-")}
+    required = {
+        "lib/wifi/mtwifi.uc", "lib/wifi/mtwifi.sh", "lib/netifd/wireless/mtwifi.sh",
+        "usr/share/ucode/mtwifi/driver.uc", "usr/lib/ucode/datconf.so",
+        "usr/lib/ucode/l1parser.so", "usr/lib/ucode/iwinfo.so",
+        "usr/share/luci-app-mtwifi-cfg/wireless-mtk.js", "etc/modules.d/mt_wifi",
+        "lib/firmware/WIFI_RAM_CODE_MT7986.bin",
+    }
+    missing = sorted(required - files)
+    for module in ("mt_wifi.ko", "conninfra.ko", "mtk_warp.ko"):
+        if not any(p.startswith("lib/modules/") and p.endswith("/" + module) for p in files):
+            missing.append(module)
+    if missing:
+        raise ValueError("MTK wireless files missing from image: " + ", ".join(missing))
+
+
+def release_notes(lock):
+    profile, values, source = lock["profile"], lock["defaults"], lock["source"]
+    label = profile.get("display_name", lock["profile_id"])
+    repository = source["repository"].removesuffix(".git")
+    notes = "ImmortalWrt · " + label + "\n\n"
+    notes += "### 开始使用\n\n| 项目 | 默认设置 |\n| :--- | :--- |\n"
+    notes += "| 管理入口 | `" + values["lan_ip"] + "` · HTTP / HTTPS |\n"
+    notes += "| 登录 | `root` · " + ("已设密码" if values.get("root_password_hash") else "空密码") + " |\n"
+    notes += "| 界面 | `" + values["theme"] + "` · 简体中文 |\n"
+    notes += "| 主机名 | `" + values["hostname"] + "` |\n"
+    if profile["target"] != "x86":
+        notes += "| Wi-Fi | `" + values["wifi_ssid"] + "` · `" + values["wifi_password"] + "` |\n"
+    else:
+        notes += "\nx86 无内置无线时不生成热点。\n"
+    notes += "\n> 首次登录请修改默认密码。只刷匹配机型与分区的镜像；sysupgrade 不代表适用于原厂首次刷入，勿强刷。\n"
+    if lock["profile_id"].startswith("s20p-"):
+        notes += "\n> S20P MTK / MT76 不保证直接互刷。"
+        if profile["source"] == "chasey":
+            notes += "Mesh / daed / honk 默认关闭；厂商无线的 802.11s 未验证，HNAT / WARP 与透明代理需验证兼容性。"
+        notes += "\n"
+    notes += "\n<details>\n<summary>源码与文件</summary>\n\n"
+    notes += "源码：[" + source["branch"] + " · " + source["commit"][:7] + "](" + repository + "/commit/" + source["commit"] + ")。\n\n"
+    notes += "校验：`sha256sums` · 配置：`config.full` / `config.diff` · 构建记录：`build-info.json`。\n\n"
+    notes += "`packages.tar.gz` 为同次构建的软件包归档，不是在线软件源；内核模块须匹配 ABI。\n\n</details>\n\n"
+    notes += "<!-- build-fingerprint:" + lock["fingerprint"] + " -->\n"
+    return notes + source_marker(source) + "\n"
+
+
 def collect(args):
     lock = read_json(args.lock)
     tree = Path(args.source)
     output = Path(args.output_dir)
-    output.mkdir(parents=True, exist_ok=True)
     profile = lock["profile"]
     target = tree / "bin/targets" / profile["target"] / profile["subtarget"]
+    validate_config(lock["profile_id"], profile, (tree / ".config").read_text())
+    validate_image_packages(target, profile)
+    if lock["profile_id"] == "s20p-mtk":
+        sysupgrades = list(target.glob("*" + profile["image_match"] + "*sysupgrade*.bin"))
+        if len(sysupgrades) != 1:
+            raise ValueError("Expected one S20P MTK sysupgrade image")
+        validate_mtk_sysupgrade(sysupgrades[0])
+    output.mkdir(parents=True, exist_ok=True)
     images = []
     for path in sorted(target.iterdir()):
         if not path.is_file():
@@ -488,20 +564,7 @@ def collect(args):
     info = {**lock, "ci_commit": os.environ.get("GITHUB_SHA", "local"), "run_id": os.environ.get("GITHUB_RUN_ID", "local"),
             "images": images, "built_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
     write_json(output / "build-info.json", info)
-    notes = "# " + lock["profile_id"] + "\n\n"
-    notes += "源码：" + lock["source"]["repository"] + "\n\n分支：`" + lock["source"]["branch"] + "`；提交：`" + lock["source"]["commit"] + "`。\n\n"
-    values = lock["defaults"]
-    notes += "管理地址：`" + values["lan_ip"] + "`（HTTP 80 / HTTPS 443）；初始用户 `root`。\n\n"
-    notes += "主机名：`" + values["hostname"] + "`；默认主题：`" + values["theme"] + "`。\n\n"
-    notes += "Wi-Fi：`" + values["wifi_ssid"] + "`；密码：`" + values["wifi_password"] + "`。请立即修改默认密码。\n\n"
-    notes += "root 密码：" + ("已设置哈希" if values.get("root_password_hash") else "未设置，请首次登录后设置") + "。\n\n"
-    notes += "只刷匹配机型、布局及用途的镜像；sysupgrade 不等于首次安装固件，不要强刷或覆盖引导区。\n\n"
-    if profile["source"] == "chasey":
-        notes += "**MTK 实验功能提醒：**已预装 Mesh、daed/honk，但不自动启用；厂商无线不保证支持 802.11s。HNAT/WARP 与透明代理、统计可能冲突，请先验证或关闭相关卸载。两版 S20P 不保证直接互刷。\n\n"
-    notes += "`packages.tar.gz` 为同次构建包归档，保持默认软件源；内核模块必须严格匹配内核 ABI。\n\n"
-    notes += "<!-- build-fingerprint:" + lock["fingerprint"] + " -->\n"
-    notes += source_marker(lock["source"]) + "\n"
-    (output / "release-notes.md").write_text(notes)
+    (output / "release-notes.md").write_text(release_notes(lock))
     checksums = []
     for path in sorted(output.iterdir()):
         if path.is_file() and path.name != "sha256sums":

@@ -91,8 +91,10 @@ def publish(directory):
     notes = (directory / 'release-notes.md').read_text()
     if marker not in notes:
         raise ValueError('Release notes fingerprint does not match build metadata')
-    notes += '\n构建仓库提交：`' + info['ci_commit'] + '`。\n'
-    notes += 'Release 标签为发布索引；实际构建提交以 `build-info.json` 为准。\n'
+    notes += '\n<details>\n<summary>构建追溯</summary>\n\n'
+    notes += 'CI：[`' + info['ci_commit'][:7] + '`](https://github.com/' + repository + '/commit/' + info['ci_commit'] + ')'
+    notes += ' · [Actions #' + str(run['id']) + '](https://github.com/' + repository + '/actions/runs/' + str(run['id']) + ')。\n\n'
+    notes += '完整构建记录见 `build-info.json`；Release 标签仅用于发布索引。\n\n</details>\n'
     tag = profile + '-r' + str(run['id']) + '-' + attempt
     existing = subprocess.run(['gh', 'api', 'repos/' + repository + '/releases/tags/' + tag],
                               capture_output=True, text=True)
@@ -119,7 +121,7 @@ def publish(directory):
             # A historical CI SHA can require workflows:write after main changes.
             # Target the default branch; record the true build SHA separately above.
             subprocess.run(['gh', 'release', 'create', tag, *map(str, assets), '--draft',
-                            '--target', repo['default_branch'], '--title', profile + ' · ' + info['built_at'][:10],
+                            '--target', repo['default_branch'], '--title', profiles[profile].get('display_name', profile) + ' · ' + info['built_at'][:10],
                             '--notes-file', str(notes_file), '--repo', repository], check=True)
     subprocess.run(['gh', 'release', 'edit', tag, '--draft=false', '--repo', repository], check=True)
     print('Published: https://github.com/' + repository + '/releases/tag/' + tag)

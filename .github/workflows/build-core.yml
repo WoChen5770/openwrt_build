@@ -26,6 +26,9 @@ concurrency:
 jobs:
   compile:
     runs-on: ubuntu-24.04
+    defaults:
+      run:
+        shell: bash
     timeout-minutes: 360
     permissions:
       contents: read
@@ -78,6 +81,7 @@ jobs:
           ccache --zero-stats
       - name: Integrate plugins and verify defconfig
         run: |
+          set -euo pipefail
           mkdir -p logs
           python3 scripts/build.py prepare --source "$SOURCE_DIR" --lock ".state/$PROFILE.json" 2>&1 | tee logs/prepare.log
       - name: Compile with serial diagnostic retry
