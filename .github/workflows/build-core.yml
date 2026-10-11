@@ -87,7 +87,9 @@ jobs:
       - name: Compile with serial diagnostic retry
         run: bash scripts/compile.sh "$SOURCE_DIR" "$GITHUB_WORKSPACE/logs"
       - name: Collect firmware, packages and provenance
-        run: python3 scripts/build.py collect --source "$SOURCE_DIR" --lock ".state/$PROFILE.json" --output-dir out
+        run: |
+          set -euo pipefail
+          python3 scripts/build.py collect --source "$SOURCE_DIR" --lock ".state/$PROFILE.json" --output-dir out 2>&1 | tee logs/collect.log
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: firmware-${{ inputs.profile }}-${{ github.run_attempt }}

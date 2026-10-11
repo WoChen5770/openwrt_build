@@ -457,17 +457,32 @@ def prepare(args):
     print("Configuration verified: " + lock["profile_id"])
 
 
+def image_manifest(target, profile):
+    manifests = sorted(p for p in target.glob("*.manifest") if p.is_file())
+    device_suffix = "-" + profile["image_match"] + ".manifest"
+    platform_suffix = "-" + profile["target"] + "-" + profile["subtarget"] + ".manifest"
+    # Multi-profile builds use a target-level manifest without a device suffix.
+    # Prefer the device manifest; never fall back to another device's manifest.
+    candidates = [p for p in manifests if p.name.endswith(device_suffix)]
+    if not candidates:
+        candidates = [p for p in manifests if p.name.endswith(platform_suffix)]
+    if len(candidates) != 1:
+        found = ", ".join(p.name for p in manifests) or "none"
+        raise ValueError("Expected one matching package manifest; found: " + found)
+    return candidates[0]
+
+
 def validate_image_packages(target, profile):
     required = set(profile.get("required_image_packages", []))
     if not required:
         return
-    manifests = list(target.glob("*" + profile["image_match"] + "*.manifest"))
-    if len(manifests) != 1:
-        raise ValueError("Expected one device package manifest")
-    installed = {line.split()[0] for line in manifests[0].read_text().splitlines() if line.strip()}
+    manifest = image_manifest(target, profile)
+    installed = {line.split()[0] for line in manifest.read_text().splitlines() if line.strip()}
     missing = sorted(required - installed)
     if missing:
         raise ValueError("Firmware is missing packages: " + ", ".join(missing))
+    print("Package manifest verified: " + manifest.name)
+    return manifest
 
 
 def validate_mtk_sysupgrade(path):
@@ -533,7 +548,7 @@ def collect(args):
     profile = lock["profile"]
     target = tree / "bin/targets" / profile["target"] / profile["subtarget"]
     validate_config(lock["profile_id"], profile, (tree / ".config").read_text())
-    validate_image_packages(target, profile)
+    manifest = validate_image_packages(target, profile)
     if lock["profile_id"] == "s20p-mtk":
         sysupgrades = list(target.glob("*" + profile["image_match"] + "*sysupgrade*.bin"))
         if len(sysupgrades) != 1:
@@ -550,7 +565,7 @@ def collect(args):
         if is_image:
             shutil.copy2(path, output / path.name)
             images.append(path.name)
-        elif (path.suffix == ".manifest" and profile["image_match"] in path.name) or path.name.endswith((".buildinfo", ".json")):
+        elif path == manifest or (path.suffix == ".manifest" and profile["image_match"] in path.name) or path.name.endswith((".buildinfo", ".json")):
             shutil.copy2(path, output / path.name)
     if not images:
         raise ValueError("No matching firmware images produced")

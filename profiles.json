@@ -47,7 +47,7 @@
       "image_match": "supergateway_s20p",
       "variant": "mt76",
       "legacy_name": "SUPERGATEWAY-S20P-MT76",
-      "hostname": "S20P",
+      "hostname": "S20P-MT76",
       "fragments": ["Config/GENERAL.txt", "Config/SUPERGATEWAY-S20P-MT76.txt", "configs/base.config", "configs/passwall-xray-only.config"],
       "required": ["PACKAGE_kmod-mt7915e", "PACKAGE_kmod-mt7986-firmware", "PACKAGE_kmod-mmc"],
       "forbidden": ["PACKAGE_kmod-mt_wifi"]
@@ -75,7 +75,7 @@
       "image_match": "clx_s20p",
       "variant": "mtk-vendor",
       "legacy_name": "SUPERGATEWAY-S20P-MTK",
-      "hostname": "S20P",
+      "hostname": "S20P-MTK",
       "fragments": ["Config/GENERAL.txt", "Config/SUPERGATEWAY-S20P-MTK.txt", "configs/base.config", "configs/passwall-xray-only.config", "configs/mt7986-ax6000.config"],
       "expected_config": {
         "MTK_CONNINFRA_APSOC": "y",
