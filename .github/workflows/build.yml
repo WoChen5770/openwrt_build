@@ -35,6 +35,7 @@ jobs:
       has_builds: ${{ steps.plan.outputs.has_builds }}
       max_parallel: ${{ steps.plan.outputs.max_parallel }}
       retention_days: ${{ steps.plan.outputs.retention_days }}
+      plan_artifact_id: ${{ steps.plan-artifact.outputs.artifact-id }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -53,6 +54,7 @@ jobs:
           if [[ "$FORCE" == true ]]; then args+=(--force); fi
           python3 scripts/build.py plan "${args[@]}"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        id: plan-artifact
         if: steps.plan.outputs.has_builds == 'true'
         with:
           name: build-plan-${{ github.run_attempt }}
@@ -76,5 +78,6 @@ jobs:
       profile: ${{ matrix.profile }}
       source_commit: ${{ matrix.source_commit }}
       fingerprint: ${{ matrix.fingerprint }}
+      plan_artifact_id: ${{ needs.plan.outputs.plan_artifact_id }}
       retention_days: ${{ fromJSON(needs.plan.outputs.retention_days) }}
       publish: ${{ github.event_name == 'schedule' || inputs.publish == true }}

@@ -33,6 +33,35 @@ def context():
     return repository, repo, run
 
 
+def latest_jobs(repository, run):
+    # A partial rerun keeps successful producer jobs from an older attempt.
+    # Read job history rather than treating the run's latest attempt as theirs.
+    base = 'repos/' + repository + '/actions/runs/' + str(run['id'])
+    pages = gh_json(base + '/jobs?filter=all&per_page=100', True)
+    latest = {}
+    for page in pages:
+        for job in page['jobs']:
+            match = re.fullmatch(r'([a-z0-9-]+) / (compile|publish)(?: / \2)?', job['name'])
+            if not match:
+                match = re.match(r'^build \(([^,]+),.*? / (compile|publish)(?: / \2)?$', job['name'])
+            if not match:
+                continue
+            key = (match[1], match[2])
+            order = (int(job['run_attempt']), int(job['id']))
+            previous = latest.get(key)
+            if previous is None or order > (int(previous['run_attempt']), int(previous['id'])):
+                latest[key] = job
+    return latest
+
+
+def verify_build(repository, run, profile, attempt):
+    if not re.fullmatch(r'[1-9][0-9]*', attempt):
+        raise ValueError('Invalid source build attempt')
+    job = latest_jobs(repository, run).get((profile, 'compile'))
+    if not job or job['conclusion'] != 'success' or str(job['run_attempt']) != attempt:
+        raise ValueError('No matching successful compilation; refusing stale or failed build')
+
+
 def plan():
     repository, _, run = context()
     profiles = json.loads((ROOT / 'profiles.json').read_text())['profiles']
@@ -40,29 +69,29 @@ def plan():
     automatic = os.environ.get('AUTO_RECOVER') == 'true'
     if selected != 'all' and selected not in profiles:
         raise ValueError('Unknown profile')
-    attempt = str(run['run_attempt'])
     base = 'repos/' + repository + '/actions/runs/' + str(run['id'])
-    pages = gh_json(base + '/attempts/' + attempt + '/jobs?per_page=100', True)
-    successful, failed_publish = set(), set()
-    for page in pages:
-        for job in page['jobs']:
-            # Explicit matrix names omit SHAs; retain support for historical runs.
-            # Nested reusable publishers append another " / publish".
-            match = re.fullmatch(r'([a-z0-9-]+) / (compile|publish)(?: / publish)?', job['name'])
-            if not match:
-                match = re.match(r'^build \(([^,]+),.*? / (compile|publish)(?: / publish)?$', job['name'])
-            if match and match[2] == 'compile' and job['conclusion'] == 'success':
-                successful.add(match[1])
-            if match and match[2] == 'publish' and job['conclusion'] == 'failure':
-                failed_publish.add(match[1])
-    # Opted-out (publish=false) builds have no failed publisher and stay unpublished.
-    if automatic:
-        successful &= failed_publish
+    jobs = latest_jobs(repository, run)
     pages = gh_json(base + '/artifacts?per_page=100', True)
-    available = {a['name'] for page in pages for a in page['artifacts'] if not a['expired']}
-    matrix = {'include': [dict(profile=name, source_run_id=str(run['id']), source_run_attempt=attempt)
-                          for name in profiles if name in successful
-                          and selected in ('all', name) and 'firmware-' + name + '-' + attempt in available]}
+    available = [a for page in pages for a in page['artifacts'] if not a['expired']]
+    matrix = {'include': []}
+    for name in profiles:
+        compile_job = jobs.get((name, 'compile'))
+        if selected not in ('all', name) or not compile_job or compile_job['conclusion'] != 'success':
+            continue
+        attempt = str(compile_job['run_attempt'])
+        publisher = jobs.get((name, 'publish'))
+        # Never turn publish=false, a skipped job, or user cancellation into an
+        # automatic release. Only failed or timed-out publishers are recovered.
+        if automatic and (not publisher or publisher['conclusion'] not in ('failure', 'timed_out')
+                          or int(publisher['run_attempt']) < int(attempt)):
+            continue
+        candidates = [artifact for artifact in available
+                      if artifact['name'] == 'firmware-' + name + '-' + attempt]
+        if not candidates:
+            continue
+        artifact = max(candidates, key=lambda item: int(item['id']))
+        matrix['include'].append(dict(profile=name, source_run_id=str(run['id']), source_run_attempt=attempt,
+                                      artifact_id=str(artifact['id'])))
     if not matrix['include'] and not automatic:
         raise ValueError('No successful, unexpired firmware artifacts for this selection')
     with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
@@ -71,12 +100,14 @@ def plan():
     print(json.dumps(matrix))
 
 
-def validate_info(info, run, profile):
+def validate_info(info, run, profile, attempt=None):
     if (info['profile_id'] != profile or str(info['run_id']) != str(run['id'])
             or info['ci_commit'] != run['head_sha']
             or not re.fullmatch(r'[0-9a-f]{40}', info['ci_commit'])
             or not re.fullmatch(r'[0-9a-f]{64}', info['fingerprint'])):
         raise ValueError('Artifact provenance does not match its source build')
+    if attempt is not None and 'run_attempt' in info and str(info['run_attempt']) != attempt:
+        raise ValueError('Artifact belongs to a different compilation attempt')
 
 
 def publish(directory):
@@ -84,12 +115,13 @@ def publish(directory):
     profile = os.environ['PROFILE']
     profiles = json.loads((ROOT / 'profiles.json').read_text())['profiles']
     attempt = os.environ['SOURCE_RUN_ATTEMPT']
-    if profile not in profiles or attempt != str(run['run_attempt']):
-        raise ValueError('Invalid profile or stale build attempt')
+    if profile not in profiles:
+        raise ValueError('Invalid profile')
+    verify_build(repository, run, profile, attempt)
     directory = directory.resolve()
     subprocess.run(['sha256sum', '-c', 'sha256sums'], cwd=directory, check=True)
     info = json.loads((directory / 'build-info.json').read_text())
-    validate_info(info, run, profile)
+    validate_info(info, run, profile, attempt)
     marker = '<!-- build-fingerprint:' + info['fingerprint'] + ' -->'
     notes = (directory / 'release-notes.md').read_text()
     if marker not in notes:

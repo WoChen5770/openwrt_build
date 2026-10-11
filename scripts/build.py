@@ -422,15 +422,21 @@ def apply_defaults(tree, values, vendor=False):
             raise ValueError("Cannot set root password hash")
         path.write_text(content)
     if vendor:
-        # Preinstalled experimental proxy/Mesh tools stay disabled on first boot.
-        script = "#!/bin/sh\n"
-        for service in ("daed", "honk", "mesh"):
-            script += "[ ! -x /etc/init.d/" + service + " ] || /etc/init.d/" + service + " disable\n"
-        script += "uci -q set mesh.main.enabled='0'\nuci -q set mesh.main.button='0'\nuci -q commit mesh\n"
-        script += "uci -q set daed.config.enabled='0'\nuci -q commit daed\nexit 0\n"
-        path = overlay / "98-mtk-experimental-off"
-        path.write_text(script)
-        path.chmod(0o755)
+        # Set packaged defaults, not restored UCI state. The init scripts respect
+        # these switches, so a kept-config sysupgrade must not disable services.
+        for relative, options in (
+            ("package/luci-app-mesh/root/etc/config/mesh", ("enabled", "button")),
+            ("package/daed/files/daed.config", ("enabled",)),
+            ("package/honk/files/honk.config", ("enabled",)),
+        ):
+            path = tree / relative
+            content = path.read_text()
+            for option in options:
+                pattern = r"(?m)^([ \t]*option[ \t]+" + option + r"[ \t]+)(?:'[^'\n]*'|\"[^\"\n]*\"|\S+)[ \t]*$"
+                content, count = re.subn(pattern, lambda m: m[1] + "'0'", content)
+                if count != 1:
+                    raise ValueError("Service defaults changed upstream: " + relative + " / " + option)
+            path.write_text(content)
 
 
 def prepare(args):
@@ -480,8 +486,6 @@ def image_manifest(target, profile, profile_id=None):
 
 def validate_image_packages(target, profile, profile_id=None):
     required = set(profile.get("required_image_packages", []))
-    if not required:
-        return
     manifest = image_manifest(target, profile, profile_id)
     installed = {line.split()[0] for line in manifest.read_text().splitlines() if line.strip()}
     missing = sorted(required - installed)
@@ -583,6 +587,7 @@ def collect(args):
             if path.is_dir():
                 archive.add(path, arcname=str(path.relative_to(tree / "bin")))
     info = {**lock, "ci_commit": os.environ.get("GITHUB_SHA", "local"), "run_id": os.environ.get("GITHUB_RUN_ID", "local"),
+            "run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT", "1"),
             "images": images, "built_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
     write_json(output / "build-info.json", info)
     (output / "release-notes.md").write_text(release_notes(lock))

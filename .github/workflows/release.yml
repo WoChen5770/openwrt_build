@@ -55,3 +55,4 @@ jobs:
       profile: ${{ matrix.profile }}
       source_run_id: ${{ matrix.source_run_id }}
       source_run_attempt: ${{ matrix.source_run_attempt }}
+      artifact_id: ${{ matrix.artifact_id }}
