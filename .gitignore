@@ -4,5 +4,4 @@ out/
 openwrt/
 __pycache__/
 *.pyc
-tests/
 .DS_Store

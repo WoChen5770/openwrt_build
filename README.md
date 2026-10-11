@@ -18,7 +18,7 @@
 | Xiaomi BE6500 | ath12k · PPE · Mesh / DAWN | [VIKINGYFY / owrt](https://github.com/VIKINGYFY/immortalwrt/tree/owrt) |
 | Tenda BE12 Pro | MT76 · Mesh / DAWN | [VIKINGYFY / owrt](https://github.com/VIKINGYFY/immortalwrt/tree/owrt) |
 | S20P · MT76 | 开源无线 · Mesh<br>PassWall（Xray-only）· daed / honk · EasyTier · AdGuard Home | [VIKINGYFY / owrt](https://github.com/VIKINGYFY/immortalwrt/tree/owrt) |
-| S20P · MTK | 厂商无线 · HNAT / WARP · TurboACC / eQoS · Mesh<br>PassWall（Xray-only）· daed / honk · EasyTier · AdGuard Home | [chasey-dev / 25.12](https://github.com/chasey-dev/immortalwrt-mt798x-rebase/tree/25.12) |
+| S20P · MTK | 厂商无线 · HNAT / WARP · TurboACC / eQoS<br>PassWall（Xray-only）· daed / honk · EasyTier · AdGuard Home | [chasey-dev / 25.12](https://github.com/chasey-dev/immortalwrt-mt798x-rebase/tree/25.12) |
 | x86-64 | BBR · BIOS / UEFI / VMDK<br>PassWall（Xray-only）· daed / honk · EasyTier · AdGuard Home | [VIKINGYFY / owrt](https://github.com/VIKINGYFY/immortalwrt/tree/owrt) |
 
 ## 默认设置
@@ -57,7 +57,7 @@
 | `source_commit` | 单机型锁定上游完整 40 位 SHA |
 | ccache | 上限 1 GiB；命中统计见 `logs/ccache.log` |
 | `packages.tar.gz` | 同次构建的包归档，非在线软件源；内核模块须匹配 ABI |
-| MTK 服务 | Mesh / daed / honk 已集成，默认不启用 |
+| MTK 服务 | 不集成 Mesh；daed / honk 已集成，默认不启用 |
 
 </details>
 

@@ -1,9 +1,9 @@
 #!/bin/bash
-# S20P / BE12 Pro / BE6500: fetch xxosdev/luci-app-mesh without changing its runtime defaults.
+# S20P MT76 / BE12 Pro / BE6500: fetch xxosdev/luci-app-mesh without changing its runtime defaults.
 set -euo pipefail
 
 case "${WRT_CONFIG:-}" in
-	SUPERGATEWAY-S20P-MT76|SUPERGATEWAY-S20P-MTK|TENDA-BE12-PRO|XIAOMI-BE6500) ;;
+	SUPERGATEWAY-S20P-MT76|TENDA-BE12-PRO|XIAOMI-BE6500) ;;
 	*) exit 0 ;;
 esac
 
@@ -31,14 +31,6 @@ test -f "$MESH_TMP/source/root/etc/config/mesh"
 # Do not install the conflicting wpad-mesh-openssl variant alongside it.
 patch --batch --forward --fuzz=0 -d "$MESH_TMP/source" -p1 \
 	< "$GITHUB_WORKSPACE/legacy/Patches/mesh-wpad-openssl.patch"
-
-# The vendor stack provides the iwinfo command through iwinfo-ucode.
-# A dependency on traditional iwinfo would force it back on during defconfig,
-# excluding iwinfo-ucode and the complete MTK wireless configuration stack.
-if [ "$WRT_CONFIG" = SUPERGATEWAY-S20P-MTK ]; then
-	patch --batch --forward --fuzz=0 -d "$MESH_TMP/source" -p1 \
-		< "$GITHUB_WORKSPACE/legacy/Patches/mesh-iwinfo-ucode.patch"
-fi
 
 # Fetch and validate first; remove only exact-name packages and feeds links.
 find ./package ./feeds/luci ./feeds/packages -maxdepth 3 \

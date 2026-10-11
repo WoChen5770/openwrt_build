@@ -1,4 +1,4 @@
-# CLX S20P / chasey 25.12. Includes experimental Mesh/eBPF tools by user request.
+# CLX S20P / chasey 25.12. Vendor Wi-Fi does not expose 802.11s mesh point support.
 CONFIG_TARGET_mediatek=y
 CONFIG_TARGET_mediatek_filogic=y
 CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_clx_s20p=y
@@ -59,7 +59,7 @@ CONFIG_PACKAGE_luci-app-honk=y
 CONFIG_PACKAGE_luci-i18n-honk-zh-cn=y
 CONFIG_PACKAGE_luci-app-bandix=n
 CONFIG_PACKAGE_bandix=n
-CONFIG_PACKAGE_luci-app-mesh=y
+CONFIG_PACKAGE_luci-app-mesh=n
 CONFIG_PACKAGE_kmod-mac80211=y
 CONFIG_PACKAGE_MAC80211_MESH=y
 CONFIG_PACKAGE_wpad-openssl=y

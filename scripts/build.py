@@ -425,7 +425,6 @@ def apply_defaults(tree, values, vendor=False):
         # Set packaged defaults, not restored UCI state. The init scripts respect
         # these switches, so a kept-config sysupgrade must not disable services.
         for relative, options in (
-            ("package/luci-app-mesh/root/etc/config/mesh", ("enabled", "button")),
             ("package/daed/files/daed.config", ("enabled",)),
             ("package/honk/files/honk.config", ("enabled",)),
         ):
@@ -491,6 +490,9 @@ def validate_image_packages(target, profile, profile_id=None):
     missing = sorted(required - installed)
     if missing:
         raise ValueError("Firmware is missing packages: " + ", ".join(missing))
+    forbidden = sorted(installed & set(profile.get("forbidden_image_packages", [])))
+    if forbidden:
+        raise ValueError("Firmware contains forbidden packages: " + ", ".join(forbidden))
     print("Package manifest verified: " + manifest.name)
     return manifest
 
@@ -541,7 +543,7 @@ def release_notes(lock):
     if lock["profile_id"].startswith("s20p-"):
         notes += "\n> S20P MTK / MT76 不保证直接互刷。"
         if profile["source"] == "chasey":
-            notes += "Mesh / daed / honk 默认关闭；厂商无线的 802.11s 未验证，HNAT / WARP 与透明代理需验证兼容性。"
+            notes += "不集成 luci-app-mesh（厂商无线驱动未上报 mesh point 能力）；daed / honk 默认关闭，HNAT / WARP 与透明代理需验证兼容性。"
         notes += "\n"
     notes += "\n<details>\n<summary>源码与文件</summary>\n\n"
     notes += "源码：[" + source["branch"] + " · " + source["commit"][:7] + "](" + repository + "/commit/" + source["commit"] + ")。\n\n"

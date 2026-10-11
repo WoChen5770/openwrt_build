@@ -96,7 +96,8 @@
       },
       "required": ["PACKAGE_kmod-mt_wifi", "PACKAGE_kmod-conninfra", "PACKAGE_kmod-warp", "PACKAGE_kmod-mediatek_hnat", "PACKAGE_wireless-tools", "PACKAGE_mtwifi-cfg-ucode", "PACKAGE_luci-app-mtwifi-cfg", "PACKAGE_iwinfo-ucode", "PACKAGE_ucode-mod-iwinfo", "PACKAGE_ucode-mod-datconf", "PACKAGE_ucode-mod-l1parser", "PACKAGE_wifi-scripts", "PACKAGE_kmod-mmc"],
       "required_image_packages": ["kmod-mt_wifi", "kmod-conninfra", "kmod-warp", "kmod-mediatek_hnat", "wireless-tools", "kmod-mmc", "wifi-dats", "wifi-scripts", "mtwifi-cfg-ucode", "luci-app-mtwifi-cfg", "iwinfo-ucode", "ucode-mod-iwinfo", "ucode-mod-datconf", "ucode-mod-l1parser"],
-      "forbidden": ["PACKAGE_kmod-mt7915e", "PACKAGE_kmod-mt7996", "PACKAGE_iwinfo"]
+      "forbidden_image_packages": ["luci-app-mesh"],
+      "forbidden": ["PACKAGE_kmod-mt7915e", "PACKAGE_kmod-mt7996", "PACKAGE_iwinfo", "PACKAGE_luci-app-mesh"]
     }
   }
 }
