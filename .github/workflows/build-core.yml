@@ -35,7 +35,8 @@ jobs:
     env:
       SOURCE_DIR: ${{ github.workspace }}/openwrt
       CCACHE_MAXSIZE: 1G
-      PROFILE: ${{ inputs.profile }}
+      # PROFILE is an upstream Make variable; do not export our CI id under it.
+      FIRMWARE_PROFILE: ${{ inputs.profile }}
       SOURCE_COMMIT: ${{ inputs.source_commit }}
       FINGERPRINT: ${{ inputs.fingerprint }}
       GH_TOKEN: ${{ github.token }}
@@ -58,14 +59,15 @@ jobs:
           import os
           from pathlib import Path
           from scripts.build import checkout, read_json
-          lock = read_json(Path('.state') / (os.environ['PROFILE'] + '.json'))
+          lock = read_json(Path('.state') / (os.environ['FIRMWARE_PROFILE'] + '.json'))
           assert lock['source']['commit'] == os.environ['SOURCE_COMMIT']
           assert lock['fingerprint'] == os.environ['FINGERPRINT']
           checkout(lock['source']['repository'], lock['source']['commit'], Path(os.environ['SOURCE_DIR']))
           PY
           df -h .
       - name: Restore compiler and download caches
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        id: build-cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
             ${{ env.CCACHE_DIR }}
@@ -83,13 +85,35 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p logs
-          python3 scripts/build.py prepare --source "$SOURCE_DIR" --lock ".state/$PROFILE.json" 2>&1 | tee logs/prepare.log
+          python3 scripts/build.py prepare --source "$SOURCE_DIR" --lock ".state/$FIRMWARE_PROFILE.json" 2>&1 | tee logs/prepare.log
       - name: Compile with serial diagnostic retry
+        id: compile
         run: bash scripts/compile.sh "$SOURCE_DIR" "$GITHUB_WORKSPACE/logs"
+      - name: Save successful compilation caches
+        continue-on-error: true
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ${{ env.CCACHE_DIR }}
+            ${{ env.SOURCE_DIR }}/dl
+          key: ${{ steps.build-cache.outputs.cache-primary-key }}
       - name: Collect firmware, packages and provenance
+        id: collect
         run: |
           set -euo pipefail
-          python3 scripts/build.py collect --source "$SOURCE_DIR" --lock ".state/$PROFILE.json" --output-dir out 2>&1 | tee logs/collect.log
+          python3 scripts/build.py collect --source "$SOURCE_DIR" --lock ".state/$FIRMWARE_PROFILE.json" --output-dir out 2>&1 | tee logs/collect.log
+      - name: Preserve images for failed collection diagnostics
+        if: failure() && steps.compile.outcome == 'success' && steps.collect.outcome == 'failure'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: diagnostic-images-${{ inputs.profile }}-${{ github.run_attempt }}
+          path: |
+            ${{ env.SOURCE_DIR }}/bin/targets/**/*.bin
+            ${{ env.SOURCE_DIR }}/bin/targets/**/*.manifest
+            ${{ env.SOURCE_DIR }}/bin/targets/**/*.json
+            ${{ env.SOURCE_DIR }}/bin/targets/**/*.buildinfo
+          retention-days: ${{ inputs.retention_days }}
+          if-no-files-found: warn
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: firmware-${{ inputs.profile }}-${{ github.run_attempt }}

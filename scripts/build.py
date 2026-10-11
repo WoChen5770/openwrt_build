@@ -457,26 +457,32 @@ def prepare(args):
     print("Configuration verified: " + lock["profile_id"])
 
 
-def image_manifest(target, profile):
+def image_manifest(target, profile, profile_id=None):
     manifests = sorted(p for p in target.glob("*.manifest") if p.is_file())
     device_suffix = "-" + profile["image_match"] + ".manifest"
-    platform_suffix = "-" + profile["target"] + "-" + profile["subtarget"] + ".manifest"
-    # Multi-profile builds use a target-level manifest without a device suffix.
-    # Prefer the device manifest; never fall back to another device's manifest.
-    candidates = [p for p in manifests if p.name.endswith(device_suffix)]
-    if not candidates:
-        candidates = [p for p in manifests if p.name.endswith(platform_suffix)]
+    platform = "-" + profile["target"] + "-" + profile["subtarget"]
+    # Older CI exported PROFILE, which upstream used as a manifest suffix.
+    # Match only this locked profile, then the normal target-wide manifest.
+    suffixes = [device_suffix]
+    if profile_id:
+        suffixes.append(platform + "-" + profile_id + ".manifest")
+    suffixes.append(platform + ".manifest")
+    candidates = []
+    for suffix in suffixes:
+        candidates = [p for p in manifests if p.name.endswith(suffix)]
+        if candidates:
+            break
     if len(candidates) != 1:
         found = ", ".join(p.name for p in manifests) or "none"
         raise ValueError("Expected one matching package manifest; found: " + found)
     return candidates[0]
 
 
-def validate_image_packages(target, profile):
+def validate_image_packages(target, profile, profile_id=None):
     required = set(profile.get("required_image_packages", []))
     if not required:
         return
-    manifest = image_manifest(target, profile)
+    manifest = image_manifest(target, profile, profile_id)
     installed = {line.split()[0] for line in manifest.read_text().splitlines() if line.strip()}
     missing = sorted(required - installed)
     if missing:
@@ -548,7 +554,7 @@ def collect(args):
     profile = lock["profile"]
     target = tree / "bin/targets" / profile["target"] / profile["subtarget"]
     validate_config(lock["profile_id"], profile, (tree / ".config").read_text())
-    manifest = validate_image_packages(target, profile)
+    manifest = validate_image_packages(target, profile, lock["profile_id"])
     if lock["profile_id"] == "s20p-mtk":
         sysupgrades = list(target.glob("*" + profile["image_match"] + "*sysupgrade*.bin"))
         if len(sysupgrades) != 1:
