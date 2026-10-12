@@ -22,6 +22,9 @@
       "hostname": "XIAOMI-BE6500",
       "fragments": ["Config/GENERAL.txt", "Config/XIAOMI-BE6500.txt", "configs/base.config"],
       "required": ["PACKAGE_kmod-ath12k", "PACKAGE_kmod-qcom-ppe", "PACKAGE_ipq-wifi-xiaomi_be6500", "PACKAGE_ath12k-firmware-ipq5332-ddwrt", "PACKAGE_ath12k-firmware-qcn9274-ddwrt"],
+      "expected_config": {"TARGET_PER_DEVICE_ROOTFS": "n"},
+      "required_image_packages": ["kmod-ath12k", "kmod-qcom-ppe", "ipq-wifi-xiaomi_be6500", "ath12k-firmware-ipq5332-ddwrt", "ath12k-firmware-qcn9274-ddwrt"],
+      "forbidden_image_packages": ["automount", "kmod-usb-core", "kmod-usb3"],
       "forbidden": ["PACKAGE_kmod-mt_wifi"]
     },
     "tenda-be12-pro": {
@@ -35,7 +38,10 @@
       "legacy_name": "TENDA-BE12-PRO",
       "hostname": "TENDA-BE12-PRO",
       "fragments": ["Config/GENERAL.txt", "Config/TENDA-BE12-PRO.txt", "configs/base.config"],
-      "required": ["PACKAGE_kmod-mt7992-firmware", "PACKAGE_mt7987-2p5g-phy-firmware", "PACKAGE_kmod-phy-airoha-en8811h"],
+      "required": ["PACKAGE_kmod-mt7992-firmware", "PACKAGE_mt7987-2p5g-phy-firmware", "PACKAGE_airoha-en8811h-firmware", "PACKAGE_kmod-phy-airoha-en8811h"],
+      "expected_config": {"TARGET_PER_DEVICE_ROOTFS": "n"},
+      "required_image_packages": ["kmod-mt7992-firmware", "mt7987-2p5g-phy-firmware", "airoha-en8811h-firmware", "kmod-phy-airoha-en8811h"],
+      "forbidden_image_packages": ["automount", "kmod-usb-core", "kmod-usb3"],
       "forbidden": ["PACKAGE_kmod-mt_wifi"]
     },
     "s20p-mt76": {
@@ -50,6 +56,7 @@
       "hostname": "S20P-MT76",
       "fragments": ["Config/GENERAL.txt", "Config/SUPERGATEWAY-S20P-MT76.txt", "configs/base.config", "configs/passwall-xray-only.config"],
       "required": ["PACKAGE_kmod-mt7915e", "PACKAGE_kmod-mt7986-firmware", "PACKAGE_kmod-mmc"],
+      "required_image_packages": ["kmod-mt7915e", "kmod-mt7986-firmware", "kmod-mmc"],
       "forbidden": ["PACKAGE_kmod-mt_wifi"]
     },
     "x86-64": {

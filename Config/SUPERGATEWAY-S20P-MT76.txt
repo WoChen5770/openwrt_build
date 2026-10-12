@@ -5,6 +5,9 @@ CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_supergateway_s20p=y
 
 # 保留上游设备自带的 WiFi、USB、MMC/NVMe 和文件系统支持。
 # 不套用 X86 / BE12 Pro 的硬件裁剪，也不修改设备树或 eMMC 分区布局。
+CONFIG_PACKAGE_kmod-mt7915e=y
+CONFIG_PACKAGE_kmod-mt7986-firmware=y
+CONFIG_PACKAGE_kmod-mmc=y
 CONFIG_PACKAGE_kmod-cryptodev=y
 CONFIG_PACKAGE_kmod-tls=y
 

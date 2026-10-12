@@ -2,6 +2,13 @@
 CONFIG_TARGET_mediatek=y
 CONFIG_TARGET_mediatek_filogic=y
 CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_tenda_be12-pro=y
+# 单设备根文件系统：允许禁用平台默认 USB 包，避免被 MODULE_DEFAULT_* 强制选为 m。
+CONFIG_TARGET_PER_DEVICE_ROOTFS=n
+# 上游 tenda_be12-pro 的必需设备包：MT7992 无线、MT7987/EN8811H 2.5G 网口。
+CONFIG_PACKAGE_kmod-mt7992-firmware=y
+CONFIG_PACKAGE_mt7987-2p5g-phy-firmware=y
+CONFIG_PACKAGE_airoha-en8811h-firmware=y
+CONFIG_PACKAGE_kmod-phy-airoha-en8811h=y
 # 与 MEDIATEK-WIFI-YES 保持一致的内核组件
 CONFIG_PACKAGE_kmod-cryptodev=y
 CONFIG_PACKAGE_kmod-tls=y

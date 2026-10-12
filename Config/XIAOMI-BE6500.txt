@@ -2,6 +2,8 @@
 CONFIG_TARGET_qualcommbe=y
 CONFIG_TARGET_qualcommbe_ipq53xx=y
 CONFIG_TARGET_DEVICE_qualcommbe_ipq53xx_DEVICE_xiaomi_be6500=y
+# 单设备根文件系统：允许禁用平台默认 USB/串口包，保留下面显式选择的高通驱动。
+CONFIG_TARGET_PER_DEVICE_ROOTFS=n
 
 # 保留上游高通网络/无线驱动、IPQ5332/QCN9274 固件和 BE6500 专用校准数据。
 # 不修改设备树、NAND/UBI 分区布局，也不套用 BE12 Pro 的 Filogic 设备配置。
