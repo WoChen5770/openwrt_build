@@ -19,8 +19,48 @@ def fixture(tree, name, content):
 
 
 class RepositoryLayoutTests(unittest.TestCase):
+    def test_config_directory_has_standalone_models_and_toml_settings(self):
+        config_dir = build.ROOT / 'Config'
+        profiles = build.read_toml(config_dir / 'profiles.toml')['profiles']
+        paths = [build.ROOT / profile['config'] for profile in profiles.values()]
+        self.assertEqual(len(paths), len(set(paths)))
+        self.assertEqual(set(paths), {path for path in config_dir.glob('*.txt') if path.name != 'PRIVATE.txt'})
+        self.assertEqual({path.name for path in config_dir.glob('*.toml')},
+                         {'profiles.toml', 'packages.toml', 'firmware-defaults.toml', 'build-settings.toml'})
+        self.assertEqual(list(config_dir.glob('*.json')), [])
+        for path in paths:
+            with self.subTest(config=path.name):
+                lines = [line.strip() for line in path.read_text().splitlines()
+                         if line.strip() and not line.lstrip().startswith('#')]
+                for line in lines:
+                    self.assertRegex(line, r'^CONFIG_[^=]+=[^\r\n]+$')
+                keys = [line.split('=', 1)[0] for line in lines]
+                self.assertEqual(len(keys), len(set(keys)), 'Duplicate configuration option')
+                self.assertTrue(build.merge_config(['\n'.join(lines)]))
+
+    def test_config_comments_are_short_and_chinese(self):
+        for path in (build.ROOT / 'Config').iterdir():
+            if path.suffix not in ('.txt', '.toml') or path.name == 'PRIVATE.txt':
+                continue
+            for number, line in enumerate(path.read_text().splitlines(), 1):
+                if line.lstrip().startswith('#'):
+                    with self.subTest(file=path.name, line=number):
+                        self.assertRegex(line, r'[\u4e00-\u9fff]')
+                        self.assertLessEqual(len(line), 60)
+
+    def test_toml_comments_and_value_types(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = fixture(Path(directory), 'settings.toml',
+                           '# 构建设置\nscheduled_builds = true # 启用\nmax_parallel = 5\n'
+                           '[driver]\n' + "WARP_VERSION = '\"3\"'\n")
+            self.assertEqual(build.read_toml(path),
+                             {'scheduled_builds': True, 'max_parallel': 5, 'driver': {'WARP_VERSION': '"3"'}})
+            path.write_text('max_parallel = 1\nmax_parallel = 2\n')
+            with self.assertRaises(ValueError):
+                build.read_toml(path)
+
     def test_plan_loads_all_profiles_from_config(self):
-        profiles = build.read_json(build.ROOT / 'Config/profiles.json')['profiles']
+        profiles = build.read_toml(build.ROOT / 'Config/profiles.toml')['profiles']
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory)
             args = SimpleNamespace(profile='all', output_dir=output, event='workflow_dispatch',
@@ -39,10 +79,10 @@ class RepositoryLayoutTests(unittest.TestCase):
                     lock = build.read_json(output / (name + '.json'))
                     self.assertEqual(lock['config'], build.config_for(profile))
                     self.assertEqual(lock['defaults'], build.defaults(name))
-                    self.assertEqual(profile['fragments'][0], 'Config/GENERAL.txt')
-                    for fragment in profile['fragments']:
-                        self.assertEqual((build.ROOT / fragment).parent, build.ROOT / 'Config')
-                        self.assertTrue((build.ROOT / fragment).is_file())
+                    self.assertNotIn('fragments', profile)
+                    config = build.ROOT / profile['config']
+                    self.assertEqual(config.parent, build.ROOT / 'Config')
+                    self.assertTrue(config.is_file())
 
     def test_integrate_loads_hooks_and_recipe_assets_from_scripts(self):
         lock = dict(profile_id='s20p-mt76', profile={'legacy_name': 'SUPERGATEWAY-S20P-MT76'},
@@ -86,10 +126,8 @@ class CustomizationTests(unittest.TestCase):
     def test_private_and_temporary_merge_order(self):
         with tempfile.TemporaryDirectory() as directory, patch.object(build, 'ROOT', Path(directory)):
             root = Path(directory)
-            fixture(root, 'Config/GENERAL.txt', 'CONFIG_PACKAGE_curl=y\n')
-            fixture(root, 'Config/DEVICE.txt', 'CONFIG_PACKAGE_curl=n\nCONFIG_PACKAGE_samba4=n\n')
-            fixture(root, 'Config/FEATURE.txt', 'CONFIG_PACKAGE_curl=y\nCONFIG_PACKAGE_samba4=m\n')
-            profile = {'fragments': ['Config/GENERAL.txt', 'Config/DEVICE.txt', 'Config/FEATURE.txt']}
+            fixture(root, 'Config/DEVICE.txt', 'CONFIG_PACKAGE_curl=y\nCONFIG_PACKAGE_samba4=m\n')
+            profile = {'config': 'Config/DEVICE.txt'}
             self.assertEqual(build.config_for(profile), {'PACKAGE_curl': 'y', 'PACKAGE_samba4': 'm'})
             fixture(root, 'Config/PRIVATE.txt', 'CONFIG_PACKAGE_curl=n\nCONFIG_PACKAGE_samba4=y\n')
             self.assertEqual(build.config_for(profile), {'PACKAGE_curl': 'n', 'PACKAGE_samba4': 'y'})
@@ -220,7 +258,7 @@ class PublicationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             tree = root / 'openwrt'
-            profile = build.read_json(build.ROOT / 'Config/profiles.json')['profiles']['s20p-mt76']
+            profile = build.read_toml(build.ROOT / 'Config/profiles.toml')['profiles']['s20p-mt76']
             identity = dict(profile_id='s20p-mt76', repository_owner='owner', build_date='26.10.12-09.00.00',
                             built_at='2026-10-12T01:00:00Z', run_id='123', run_attempt='1', ci_commit='e' * 40)
             lock = dict(profile_id='s20p-mt76', profile=profile, defaults=build.defaults('s20p-mt76'), config={},
@@ -325,7 +363,7 @@ class CleanupTests(unittest.TestCase):
 
     def test_active_build_skips_all_mutation(self):
         with patch.object(cleanup, 'active_builds', return_value=[{}]), patch.object(cleanup, 'settings', return_value=self.values), \
-                patch.object(cleanup, 'read_json', return_value={'profiles': self.profiles}), \
+                patch.object(cleanup, 'read_toml', return_value={'profiles': self.profiles}), \
                 patch.dict(cleanup.os.environ, {'GITHUB_REPOSITORY': 'owner/repo'}), \
                 patch('sys.argv', ['cleanup.py', '--apply']), patch.object(cleanup, 'api') as api:
             cleanup.main()

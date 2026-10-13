@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Plan, lock, integrate, validate and package builds; Python standard library only."""
+"""Plan, lock, integrate, validate and package builds; Python 3.11+ standard library."""
 import argparse
 import concurrent.futures
 from datetime import datetime, timedelta, timezone
@@ -13,6 +13,7 @@ import subprocess
 import tarfile
 import tempfile
 import time
+import tomllib
 import urllib.request
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -21,6 +22,11 @@ SHA = re.compile(r"^[0-9a-f]{40}$")
 
 def read_json(path):
     return json.loads(Path(path).read_text())
+
+
+def read_toml(path):
+    with Path(path).open("rb") as stream:
+        return tomllib.load(stream)
 
 
 def write_json(path, value):
@@ -112,12 +118,12 @@ def merge_config(fragments):
 
 
 def config_for(profile, packages=""):
-    fragments = [(ROOT / path).read_text() for path in profile["fragments"]]
+    selections = [(ROOT / profile["config"]).read_text()]
     private = ROOT / "Config/PRIVATE.txt"
     if private.is_file():
-        fragments.append(private.read_text())
-    fragments.append(package_overrides(packages))
-    return merge_config(fragments)
+        selections.append(private.read_text())
+    selections.append(package_overrides(packages))
+    return merge_config(selections)
 
 
 def package_overrides(content):
@@ -164,7 +170,7 @@ def validate_config(profile_id, profile, content, selections=None):
         if values.get(key) != expected_value:
             errors.append("Expected CONFIG_" + key + "=" + expected_value + "; got " + values.get(key, "<missing>"))
     forbidden = set(profile["forbidden"]) | {"PACKAGE_bandix", "PACKAGE_luci-app-bandix", "PACKAGE_wpad-mesh-openssl"}
-    # Preserve exclusions after merging device and shared feature fragments.
+    # Preserve exclusions after applying private and temporary package overrides.
     forbidden.update(key for key, value in selections.items() if key.startswith("PACKAGE_") and value == "n")
     if values.get("PACKAGE_luci-app-passwall") == "y":
         # Fail closed if upstream adds a new, enabled proxy backend.
@@ -184,8 +190,8 @@ def validate_config(profile_id, profile, content, selections=None):
 
 
 def defaults(profile_id=None):
-    values = read_json(ROOT / "Config/firmware-defaults.json")
-    profiles = read_json(ROOT / "Config/profiles.json")["profiles"]
+    values = read_toml(ROOT / "Config/firmware-defaults.toml")
+    profiles = read_toml(ROOT / "Config/profiles.toml")["profiles"]
     if profile_id is not None:
         values["hostname"] = profiles[profile_id]["hostname"]
     return values
@@ -226,11 +232,11 @@ def config_marker(values):
 
 
 def plan(args):
-    settings = read_json(ROOT / "Config/build-settings.json")
+    settings = read_toml(ROOT / "Config/build-settings.toml")
     matrix = []
     output = Path(args.output_dir)
     output.mkdir(parents=True, exist_ok=True)
-    specs = read_json(ROOT / "Config/profiles.json")
+    specs = read_toml(ROOT / "Config/profiles.toml")
     if args.profile != "all" and args.profile not in specs["profiles"]:
         raise ValueError("Unknown profile")
     if args.commit and args.profile == "all":
@@ -245,7 +251,7 @@ def plan(args):
         if args.event == "schedule" or not args.force:
             pages = json.loads(run("gh", "api", "repos/" + os.environ["GITHUB_REPOSITORY"] + "/releases?per_page=100", "--paginate", "--slurp"))
             known = [r for page in pages for r in page if not r["draft"]]
-        packages = read_json(ROOT / "Config/packages.json")
+        packages = read_toml(ROOT / "Config/packages.toml")
         sources = {}
         source_commits = {}
         package_commits = {}

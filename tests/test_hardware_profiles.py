@@ -33,7 +33,7 @@ def serialize(values):
 
 class HardwareProfileTests(unittest.TestCase):
     def setUp(self):
-        self.profiles = build.read_json(build.ROOT / "Config/profiles.json")["profiles"]
+        self.profiles = build.read_toml(build.ROOT / "Config/profiles.toml")["profiles"]
 
     def valid_config(self, name):
         profile = self.profiles[name]

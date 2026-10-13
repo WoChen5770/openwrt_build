@@ -1,0 +1,22 @@
+# 构建与清理
+
+# 定时构建
+scheduled_builds = true
+
+# 并行机型数
+max_parallel = 5
+
+# 附件保留天数
+artifact_retention_days = 14
+
+# 每机型保留版本数
+releases_keep_per_profile = 1
+
+# 补发保护天数
+release_recovery_days = 1
+
+# 缓存保留代数
+cache_keep_generations = 2
+
+# 缓存保护天数
+cache_min_age_days = 1

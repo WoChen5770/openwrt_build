@@ -51,7 +51,7 @@ Release 提供固件、完整配置、包清单及校验文件。Actions 日志�
 
 ```text
 .github/workflows/   构建、发布、补发、清理与检查入口
-Config/              机型配置、共享片段和 JSON 设置
+Config/              独立机型配置和 TOML 设置
 Scripts/             构建脚本、插件集成及配套资源
 tests/               配置、构建和发布回归测试
 ```
@@ -63,17 +63,16 @@ tests/               配置、构建和发布回归测试
 
 | 配置文件 | 用途 |
 | :--- | :--- |
-| [Config/GENERAL.txt](Config/GENERAL.txt) | 全机型公共配置：基础界面、组件、编译选项 |
-| `Config/<机型>.txt` | 对应机型的硬件、插件及专用驱动参数，覆盖公共配置 |
-| [Config/PASSWALL-XRAY-ONLY.txt](Config/PASSWALL-XRAY-ONLY.txt) | PassWall 共用后端配置 |
-| [Config/profiles.json](Config/profiles.json) | 机型与源码对应关系、片段合并顺序、硬件校验 |
-| [Config/packages.json](Config/packages.json) | 插件源码与适用机型 |
-| [Config/firmware-defaults.json](Config/firmware-defaults.json) | 网络、主题、时区 |
-| [Config/build-settings.json](Config/build-settings.json) | 并发、自动构建、保留周期 |
+| `Config/<机型>.txt` | 每机型一份完整配置，直接修改，无公共片段 |
+| [Config/profiles.toml](Config/profiles.toml) | 机型、源码、配置路径与硬件校验 |
+| [Config/packages.toml](Config/packages.toml) | 插件源码与适用机型 |
+| [Config/firmware-defaults.toml](Config/firmware-defaults.toml) | 网络、主题、时区 |
+| [Config/build-settings.toml](Config/build-settings.toml) | 并发、自动构建、保留周期 |
 
 | 进阶选项 | 说明 |
 | :--- | :--- |
 | `source_commit` | 单机型锁定上游完整 40 位 SHA |
+| Python | 构建脚本需要 3.11+，Actions 已满足 |
 | `packages` | 本次构建追加选包，优先级高于配置文件；只能填写 `CONFIG_PACKAGE_name=y/m/n` |
 | `Config/PRIVATE.txt` | 可选的最后一层配置，应用到所选机型（`all` 时是全部机型） |
 | `Scripts/PRIVATE.sh` | 可选 Bash 钩子，在锁定插件集成之后、默认设置 / QModem 清理之前执行；工作目录为 OpenWrt 源码根目录 |
@@ -88,11 +87,11 @@ CONFIG_PACKAGE_luci-app-samba4=y
 CONFIG_PACKAGE_samba4=y
 ```
 
-合并顺序：公共配置 → 机型/共享片段 → `Config/PRIVATE.txt` → `packages`；选包丢失或违反机型约束会终止构建。
+覆盖顺序：机型配置 → `Config/PRIVATE.txt` → `packages`；选包丢失或违反机型约束会终止构建。
 
 PRIVATE 文件需提交到构建分支；配置与构建记录会公开，勿放入 Token、私钥或私密密码。
 
-清理参数见 `Config/build-settings.json`，手动清理默认仅预览；需要长期保留的固件请自行备份。
+清理参数见 `Config/build-settings.toml`，手动清理默认仅预览；需要长期保留的固件请自行备份。
 
 </details>
 

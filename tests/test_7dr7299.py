@@ -16,8 +16,8 @@ VARIANTS = ("7dr7299-mt76", "7dr7299-mtk")
 
 class SevenDrProfileTests(unittest.TestCase):
     def setUp(self):
-        self.specs = build.read_json(build.ROOT / "Config/profiles.json")
-        self.packages = build.read_json(build.ROOT / "Config/packages.json")
+        self.specs = build.read_toml(build.ROOT / "Config/profiles.toml")
+        self.packages = build.read_toml(build.ROOT / "Config/packages.toml")
 
     def valid_config(self, name):
         profile = self.specs["profiles"][name]
@@ -78,7 +78,7 @@ class SevenDrProfileTests(unittest.TestCase):
 
     def test_vendor_platform_is_not_s20p(self):
         profile = self.specs["profiles"][VARIANTS[1]]
-        self.assertNotIn("Config/SUPERGATEWAY-S20P-MTK.txt", profile["fragments"])
+        self.assertEqual(profile["config"], "Config/TPLINK-7DR7299-MTK.txt")
         device_values = build.merge_config([(build.ROOT / "Config/TPLINK-7DR7299-MTK.txt").read_text()])
         values = self.valid_config(VARIANTS[1])
         self.assertEqual(values["WARP_VERSION"], '"3"')
@@ -159,7 +159,7 @@ class SevenDrPreparationTests(unittest.TestCase):
                 build.apply_defaults(tree, values, vendor=True, wireless_defaults="mtwifi-shell")
 
     def test_kernel_patch_is_idempotent_scoped_and_fails_on_drift(self):
-        profiles = build.read_json(build.ROOT / "Config/profiles.json")["profiles"]
+        profiles = build.read_toml(build.ROOT / "Config/profiles.toml")["profiles"]
         with tempfile.TemporaryDirectory() as directory:
             tree = Path(directory)
             untouched = fixture(tree, "target/linux/other/config-6.6", "CONFIG_OTHER=y\n")
@@ -200,7 +200,7 @@ class SevenDrPreparationTests(unittest.TestCase):
             self.assertFalse((tree / "feeds/packages/lang/golang1.26").exists())
 
     def test_prepare_uses_vendor_shell_stack_for_padavan_source(self):
-        profile = build.read_json(build.ROOT / "Config/profiles.json")["profiles"][VARIANTS[1]]
+        profile = build.read_toml(build.ROOT / "Config/profiles.toml")["profiles"][VARIANTS[1]]
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             tree = root / "openwrt"
@@ -224,7 +224,7 @@ class SevenDrPublicationTests(unittest.TestCase):
             with self.subTest(profile=name), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
                 tree = root / "openwrt"
-                profile = build.read_json(build.ROOT / "Config/profiles.json")["profiles"][name]
+                profile = build.read_toml(build.ROOT / "Config/profiles.toml")["profiles"][name]
                 identity = dict(profile_id=name, repository_owner="owner", build_date="26.10.13-22.00.00", run_id="123", run_attempt="1")
                 lock = dict(profile_id=name, profile=profile, defaults=build.defaults(name), config=build.config_for(profile),
                             source=dict(repository="https://github.com/owner/source.git", branch="test", commit="a" * 40),

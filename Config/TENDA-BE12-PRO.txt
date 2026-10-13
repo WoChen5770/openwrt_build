@@ -1,62 +1,148 @@
-# Tenda BE12 Pro Mesh 版配置（MediaTek Filogic / MT7987）
+# 腾达 BE12 Pro
+
+# 目标与镜像
+CONFIG_TARGET_ALL_PROFILES=n
+CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_tenda_be12-pro=y
+CONFIG_TARGET_MULTI_PROFILE=y
+CONFIG_TARGET_PER_DEVICE_ROOTFS=n
+CONFIG_TARGET_ROOTFS_INITRAMFS=n
 CONFIG_TARGET_mediatek=y
 CONFIG_TARGET_mediatek_filogic=y
-CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_tenda_be12-pro=y
-# 单设备根文件系统：允许禁用平台默认 USB 包，避免被 MODULE_DEFAULT_* 强制选为 m。
-CONFIG_TARGET_PER_DEVICE_ROOTFS=n
-# 上游 tenda_be12-pro 的必需设备包：MT7992 无线、MT7987/EN8811H 2.5G 网口。
-CONFIG_PACKAGE_kmod-mt7992-firmware=y
-CONFIG_PACKAGE_mt7987-2p5g-phy-firmware=y
+
+# 编译与内核
+CONFIG_CCACHE=y
+CONFIG_CCACHE_DIR=""
+CONFIG_DEVEL=y
+CONFIG_FEED_pon_drivers=n
+CONFIG_FEED_pon_userspace=n
+CONFIG_FEED_video=n
+
+# 无线与交换
 CONFIG_PACKAGE_airoha-en8811h-firmware=y
-CONFIG_PACKAGE_kmod-phy-airoha-en8811h=y
-# 与 MEDIATEK-WIFI-YES 保持一致的内核组件
-CONFIG_PACKAGE_kmod-cryptodev=y
-CONFIG_PACKAGE_kmod-tls=y
-
-# 默认集成 802.11s Mesh，保留完整 wpad 并补齐组网/漫游依赖。
-CONFIG_PACKAGE_luci-app-mesh=y
 CONFIG_PACKAGE_kmod-mac80211=y
-CONFIG_PACKAGE_MAC80211_MESH=y
-CONFIG_PACKAGE_wpad-openssl=y
-CONFIG_PACKAGE_wpad-mesh-openssl=n
-CONFIG_PACKAGE_kmod-batman-adv=y
-# 保留有线/无线回程并存时所需的桥环规避。
-CONFIG_BATMAN_ADV_BLA=y
-CONFIG_PACKAGE_batctl-default=y
-CONFIG_PACKAGE_luci-proto-batman-adv=y
-CONFIG_PACKAGE_dawn=y
-CONFIG_PACKAGE_umdns=y
+CONFIG_PACKAGE_kmod-mt7992-firmware=y
+CONFIG_PACKAGE_kmod-phy-airoha-en8811h=y
+CONFIG_PACKAGE_mt7987-2p5g-phy-firmware=y
 
-# 覆盖 GENERAL 的默认选包：不预置 UPnP、WOLUltra、PassWall 或 daed。
-# Mesh 与基础管理功能保留，修改本文件和 packages.json 可选用扩展。
-CONFIG_PACKAGE_luci-app-upnp=n
-CONFIG_PACKAGE_miniupnpd=n
-CONFIG_PACKAGE_miniupnpd-nftables=n
-CONFIG_PACKAGE_miniupnpd-iptables=n
-CONFIG_PACKAGE_luci-app-wolultra=n
-CONFIG_PACKAGE_luci-app-passwall=n
+# 组网与漫游
+CONFIG_BATMAN_ADV_BLA=y
+CONFIG_PACKAGE_MAC80211_MESH=y
+CONFIG_PACKAGE_batctl-default=y
+CONFIG_PACKAGE_dawn=y
+CONFIG_PACKAGE_kmod-batman-adv=y
+CONFIG_PACKAGE_luci-app-mesh=y
+CONFIG_PACKAGE_luci-proto-batman-adv=y
+CONFIG_PACKAGE_umdns=y
+CONFIG_PACKAGE_wpad-mesh-openssl=n
+CONFIG_PACKAGE_wpad-openssl=y
+
+# 代理与加速
+CONFIG_EASYTIER_INCLUDE_WEBCONSOLE=n
+CONFIG_PACKAGE_adguardhome=n
+CONFIG_PACKAGE_dae=n
+CONFIG_PACKAGE_daed=n
+CONFIG_PACKAGE_easytier=n
+CONFIG_PACKAGE_haproxy=n
+CONFIG_PACKAGE_haproxy-nossl=n
+CONFIG_PACKAGE_luci-app-adguardhome=n
+CONFIG_PACKAGE_luci-app-adguardhome-dashboard=n
 CONFIG_PACKAGE_luci-app-daede=n
 CONFIG_PACKAGE_luci-app-daede_daed=n
-CONFIG_PACKAGE_daed=n
-CONFIG_PACKAGE_dae=n
+CONFIG_PACKAGE_luci-app-easytier=n
+CONFIG_PACKAGE_luci-app-passwall=n
+CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Haproxy=n
+CONFIG_PACKAGE_luci-app-passwall_INCLUDE_ShadowsocksR_Libev_Client=n
+CONFIG_PACKAGE_luci-app-passwall_INCLUDE_ShadowsocksR_Libev_Server=n
+CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Shadowsocks_Rust_Client=n
+CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Shadowsocks_Rust_Server=n
+CONFIG_PACKAGE_luci-app-passwall_INCLUDE_SingBox=n
+CONFIG_PACKAGE_luci-app-passwall_INCLUDE_V2ray_Plugin=n
+CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Xray=n
+CONFIG_PACKAGE_owrt-core-update=n
+CONFIG_PACKAGE_shadowsocks-rust-sslocal=n
+CONFIG_PACKAGE_shadowsocks-rust-ssmanager=n
+CONFIG_PACKAGE_shadowsocks-rust-ssserver=n
+CONFIG_PACKAGE_shadowsocks-rust-ssservice=n
+CONFIG_PACKAGE_shadowsocks-rust-ssurl=n
+CONFIG_PACKAGE_shadowsocksr-libev-ssr-local=n
+CONFIG_PACKAGE_shadowsocksr-libev-ssr-redir=n
+CONFIG_PACKAGE_shadowsocksr-libev-ssr-server=n
+CONFIG_PACKAGE_sing-box=n
+CONFIG_PACKAGE_sing-box-tiny=n
+CONFIG_PACKAGE_upx-arm64-static=n
+CONFIG_PACKAGE_v2ray-plugin=n
+CONFIG_PACKAGE_xray-core=n
 
-# GENERAL 面向多平台；BE12 Pro 无 USB，不预置 USB、PC 磁盘和音频扩展。
-# 保留 NAND/UBI 维护工具，避免影响刷机维护。
-# 修改本文件可按需重新启用以下软件包，并同步调整禁止包校验。
+# 界面与插件
+CONFIG_LUCI_LANG_zh_Hans=y
+CONFIG_PACKAGE_luci-app-attendedsysupgrade=n
+CONFIG_PACKAGE_luci-app-autoreboot=y
+CONFIG_PACKAGE_luci-app-bandix=n
+CONFIG_PACKAGE_luci-app-fm350=n
+CONFIG_PACKAGE_luci-app-gecoosac=n
+CONFIG_PACKAGE_luci-app-mini-diskmanager=n
+CONFIG_PACKAGE_luci-app-mt5700=n
+CONFIG_PACKAGE_luci-app-mt5700m=n
+CONFIG_PACKAGE_luci-app-natmapt=n
+CONFIG_PACKAGE_luci-app-partexp=n
+CONFIG_PACKAGE_luci-app-qmodem=n
+CONFIG_PACKAGE_luci-app-qmodem-generic=n
+CONFIG_PACKAGE_luci-app-qmodem-next=n
+CONFIG_PACKAGE_luci-app-samba4=n
+CONFIG_PACKAGE_luci-app-upnp=n
+CONFIG_PACKAGE_luci-app-wol=n
+CONFIG_PACKAGE_luci-app-wolultra=n
+CONFIG_PACKAGE_luci-base=y
+CONFIG_PACKAGE_luci-compat=y
+CONFIG_PACKAGE_luci-i18n-qmodem-generic-zh-cn=n
+CONFIG_PACKAGE_luci-i18n-qmodem-next-zh-cn=n
+CONFIG_PACKAGE_luci-i18n-qmodem-zh-cn=n
+CONFIG_PACKAGE_luci-lib-base=y
+CONFIG_PACKAGE_luci-lib-ipkg=y
+CONFIG_PACKAGE_luci-lua-runtime=y
+CONFIG_PACKAGE_luci-proto-relay=y
+CONFIG_PACKAGE_luci-ssl-openssl=y
+CONFIG_PACKAGE_luci-theme-bootstrap=y
+CONFIG_PACKAGE_luci-theme-shadcn=y
+
+# 内核模块
 CONFIG_PACKAGE_kmod-ata-ahci=n
 CONFIG_PACKAGE_kmod-ata-core=n
-CONFIG_PACKAGE_kmod-nvme=n
+CONFIG_PACKAGE_kmod-bonding=y
+CONFIG_PACKAGE_kmod-cryptodev=y
+CONFIG_PACKAGE_kmod-dsa=y
+CONFIG_PACKAGE_kmod-dummy=y
 CONFIG_PACKAGE_kmod-fs-btrfs=n
 CONFIG_PACKAGE_kmod-fs-ksmbd=n
 CONFIG_PACKAGE_kmod-fuse=n
+CONFIG_PACKAGE_kmod-inet-diag=y
+CONFIG_PACKAGE_kmod-inet-mptcp-diag=y
+CONFIG_PACKAGE_kmod-mtd-rw=y
+CONFIG_PACKAGE_kmod-netlink-diag=y
+CONFIG_PACKAGE_kmod-nf-nat=y
+CONFIG_PACKAGE_kmod-nf-nat6=y
+CONFIG_PACKAGE_kmod-nft-arp=y
+CONFIG_PACKAGE_kmod-nft-bridge=y
+CONFIG_PACKAGE_kmod-nft-connlimit=y
+CONFIG_PACKAGE_kmod-nft-core=y
+CONFIG_PACKAGE_kmod-nft-dup-inet=y
+CONFIG_PACKAGE_kmod-nft-fib=y
+CONFIG_PACKAGE_kmod-nft-nat=y
+CONFIG_PACKAGE_kmod-nft-netdev=y
+CONFIG_PACKAGE_kmod-nft-offload=y
+CONFIG_PACKAGE_kmod-nft-queue=y
+CONFIG_PACKAGE_kmod-nft-socket=y
+CONFIG_PACKAGE_kmod-nft-tproxy=y
+CONFIG_PACKAGE_kmod-nft-xfrm=y
+CONFIG_PACKAGE_kmod-nvme=n
+CONFIG_PACKAGE_kmod-ovpn-backports=y
 CONFIG_PACKAGE_kmod-sound-core=n
-CONFIG_PACKAGE_kmod-usb3=n
+CONFIG_PACKAGE_kmod-tls=y
+CONFIG_PACKAGE_kmod-tun=y
+CONFIG_PACKAGE_kmod-usb-audio=n
 CONFIG_PACKAGE_kmod-usb-core=n
 CONFIG_PACKAGE_kmod-usb-dwc3=n
-CONFIG_PACKAGE_kmod-usb-audio=n
 CONFIG_PACKAGE_kmod-usb-ehci=n
-CONFIG_PACKAGE_kmod-usb-ohci=n
-CONFIG_PACKAGE_kmod-usb-uhci=n
 CONFIG_PACKAGE_kmod-usb-net=n
 CONFIG_PACKAGE_kmod-usb-net-asix=n
 CONFIG_PACKAGE_kmod-usb-net-asix-ax88179=n
@@ -71,67 +157,59 @@ CONFIG_PACKAGE_kmod-usb-net-rndis=n
 CONFIG_PACKAGE_kmod-usb-net-rtl8150=n
 CONFIG_PACKAGE_kmod-usb-net-rtl8152=n
 CONFIG_PACKAGE_kmod-usb-net-sierrawireless=n
+CONFIG_PACKAGE_kmod-usb-ohci=n
 CONFIG_PACKAGE_kmod-usb-storage=n
 CONFIG_PACKAGE_kmod-usb-storage-extras=n
 CONFIG_PACKAGE_kmod-usb-storage-uas=n
+CONFIG_PACKAGE_kmod-usb-uhci=n
+CONFIG_PACKAGE_kmod-usb3=n
+CONFIG_PACKAGE_kmod-veth=y
+CONFIG_PACKAGE_kmod-wireguard=y
+
+# 其他组件
+CONFIG_PACKAGE_autocore=y
 CONFIG_PACKAGE_automount=n
+CONFIG_PACKAGE_bandix=n
 CONFIG_PACKAGE_blkid=n
-CONFIG_PACKAGE_lsblk=n
+CONFIG_PACKAGE_ca-bundle=y
 CONFIG_PACKAGE_cfdisk=n
 CONFIG_PACKAGE_cgdisk=n
-CONFIG_PACKAGE_gdisk=n
-CONFIG_PACKAGE_sfdisk=n
-CONFIG_PACKAGE_sgdisk=n
+CONFIG_PACKAGE_coremark=y
+CONFIG_PACKAGE_cpufreq=y
+CONFIG_PACKAGE_curl=y
+CONFIG_PACKAGE_dmesg=y
 CONFIG_PACKAGE_exfat-fsck=n
 CONFIG_PACKAGE_exfat-mkfs=n
+CONFIG_PACKAGE_fdisk=y
+CONFIG_PACKAGE_fullconenat-sonic=y
+CONFIG_PACKAGE_gdisk=n
+CONFIG_PACKAGE_gecoosac=n
+CONFIG_PACKAGE_htop=y
+CONFIG_PACKAGE_ip-full=y
+CONFIG_PACKAGE_iperf3=y
 CONFIG_PACKAGE_libimobiledevice=n
 CONFIG_PACKAGE_libnvme=n
-CONFIG_PACKAGE_nvme-cli=n
+CONFIG_PACKAGE_lsblk=n
+CONFIG_PACKAGE_luci=y
+CONFIG_PACKAGE_miniupnpd=n
+CONFIG_PACKAGE_miniupnpd-iptables=n
+CONFIG_PACKAGE_miniupnpd-nftables=n
 CONFIG_PACKAGE_mmc-utils=n
+CONFIG_PACKAGE_nand-utils=y
+CONFIG_PACKAGE_natmapt=n
+CONFIG_PACKAGE_nvme-cli=n
+CONFIG_PACKAGE_openssh-keygen=y
+CONFIG_PACKAGE_openssh-sftp-server=y
+CONFIG_PACKAGE_openssl-util=y
+CONFIG_PACKAGE_proto-bonding=y
+CONFIG_PACKAGE_qmodem=n
+CONFIG_PACKAGE_samba4=n
+CONFIG_PACKAGE_sfdisk=n
+CONFIG_PACKAGE_sgdisk=n
 CONFIG_PACKAGE_smartmontools=n
 CONFIG_PACKAGE_smartmontools-drivedb=n
+CONFIG_PACKAGE_stuntman-client=y
 CONFIG_PACKAGE_usb-modeswitch=n
 CONFIG_PACKAGE_usbmuxd=n
 CONFIG_PACKAGE_usbutils=n
-
-# BE12 Pro 空间有限：默认不预置 Bandix、EasyTier。
-CONFIG_PACKAGE_luci-app-bandix=n
-CONFIG_PACKAGE_bandix=n
-CONFIG_PACKAGE_luci-app-easytier=n
-CONFIG_PACKAGE_easytier=n
-# BE12 Pro 不集成 AdGuard Home：不拉取面板，不预置核心。
-CONFIG_PACKAGE_adguardhome=n
-CONFIG_PACKAGE_luci-app-adguardhome=n
-CONFIG_PACKAGE_luci-app-adguardhome-dashboard=n
-CONFIG_EASYTIER_INCLUDE_WEBCONSOLE=n
-
-#PassWall 不默认集成这些后端；必须同时关闭 INCLUDE 选项，避免依赖重新选中。
-# 源码仍保留，可修改本文件按需重新启用。
-CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Shadowsocks_Rust_Client=n
-CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Shadowsocks_Rust_Server=n
-CONFIG_PACKAGE_luci-app-passwall_INCLUDE_ShadowsocksR_Libev_Client=n
-CONFIG_PACKAGE_luci-app-passwall_INCLUDE_ShadowsocksR_Libev_Server=n
-CONFIG_PACKAGE_luci-app-passwall_INCLUDE_SingBox=n
-CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Haproxy=n
-CONFIG_PACKAGE_luci-app-passwall_INCLUDE_V2ray_Plugin=n
-CONFIG_PACKAGE_shadowsocks-rust-sslocal=n
-CONFIG_PACKAGE_shadowsocks-rust-ssmanager=n
-CONFIG_PACKAGE_shadowsocks-rust-ssserver=n
-CONFIG_PACKAGE_shadowsocks-rust-ssservice=n
-CONFIG_PACKAGE_shadowsocks-rust-ssurl=n
-CONFIG_PACKAGE_shadowsocksr-libev-ssr-local=n
-CONFIG_PACKAGE_shadowsocksr-libev-ssr-redir=n
-CONFIG_PACKAGE_shadowsocksr-libev-ssr-server=n
-CONFIG_PACKAGE_sing-box=n
-CONFIG_PACKAGE_sing-box-tiny=n
-CONFIG_PACKAGE_haproxy=n
-CONFIG_PACKAGE_haproxy-nossl=n
-CONFIG_PACKAGE_v2ray-plugin=n
-
-# 不预置 PassWall 的 Xray 核心。
-CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Xray=n
-CONFIG_PACKAGE_xray-core=n
-
-# Mesh 版不需要代理核心压缩工具或手动更新器。
-CONFIG_PACKAGE_upx-arm64-static=n
-CONFIG_PACKAGE_owrt-core-update=n
+CONFIG_PACKAGE_xz-utils=y

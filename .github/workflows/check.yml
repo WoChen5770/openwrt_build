@@ -16,12 +16,12 @@ jobs:
       - name: Validate configuration and script syntax
         run: |
           python3 - <<'PY'
-          from Scripts.build import config_for, defaults, read_json, required_for, ROOT
+          from Scripts.build import config_for, defaults, read_toml, required_for, ROOT
           from Scripts.cleanup import settings
           settings()
-          for path in (ROOT / 'Config').glob('*.json'):
-              read_json(path)
-          for name, profile in read_json(ROOT / 'Config/profiles.json')['profiles'].items():
+          for path in (ROOT / 'Config').glob('*.toml'):
+              read_toml(path)
+          for name, profile in read_toml(ROOT / 'Config/profiles.toml')['profiles'].items():
               defaults(name)
               values = config_for(profile)
               device = 'TARGET_DEVICE_' + profile['target'] + '_' + profile['subtarget'] + '_DEVICE_' + profile['device']

@@ -10,11 +10,11 @@ from Scripts import build
 
 class MtkMeshTests(unittest.TestCase):
     def setUp(self):
-        self.profiles = build.read_json(build.ROOT / "Config/profiles.json")["profiles"]
+        self.profiles = build.read_toml(build.ROOT / "Config/profiles.toml")["profiles"]
         self.profile = self.profiles["s20p-mtk"]
 
     def test_mesh_is_excluded_only_from_mtk(self):
-        mesh = build.read_json(build.ROOT / "Config/packages.json")["mesh"]
+        mesh = build.read_toml(build.ROOT / "Config/packages.toml")["mesh"]
         self.assertNotIn("s20p-mtk", mesh["profiles"])
         self.assertNotIn("all", mesh["profiles"])
         self.assertEqual(build.config_for(self.profile)["PACKAGE_luci-app-mesh"], "n")

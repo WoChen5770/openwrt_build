@@ -8,7 +8,10 @@ import re
 import subprocess
 import tempfile
 
-ROOT = Path(__file__).resolve().parents[1]
+if __package__:
+    from .build import ROOT, read_toml
+else:
+    from build import ROOT, read_toml
 
 
 def gh_json(endpoint, paginated=False):
@@ -64,7 +67,7 @@ def verify_build(repository, run, profile, attempt):
 
 def plan():
     repository, _, run = context()
-    profiles = json.loads((ROOT / 'Config/profiles.json').read_text())['profiles']
+    profiles = read_toml(ROOT / 'Config/profiles.toml')['profiles']
     selected = os.environ.get('PROFILE', 'all')
     automatic = os.environ.get('AUTO_RECOVER') == 'true'
     if selected != 'all' and selected not in profiles:
@@ -139,7 +142,7 @@ def release_assets(directory, info):
 def publish(directory):
     repository, repo, run = context()
     profile = os.environ['PROFILE']
-    profiles = json.loads((ROOT / 'Config/profiles.json').read_text())['profiles']
+    profiles = read_toml(ROOT / 'Config/profiles.toml')['profiles']
     attempt = os.environ['SOURCE_RUN_ATTEMPT']
     if profile not in profiles:
         raise ValueError('Invalid profile')

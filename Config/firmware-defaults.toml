@@ -1,0 +1,28 @@
+# 固件默认设置
+
+# 管理地址
+lan_ip = "192.168.123.1"
+
+# 无线名称
+wifi_ssid = "ImmortalWrt"
+
+# 无线密码
+wifi_password = "12345678"
+
+# 无线加密
+wifi_encryption = "psk2"
+
+# 关闭无线
+wifi_disabled = false
+
+# 界面主题
+theme = "shadcn"
+
+# 时区规则
+timezone = "CST-8"
+
+# 时区名称
+zonename = "Asia/Shanghai"
+
+# 管理密码哈希；留空不修改
+root_password_hash = ""
