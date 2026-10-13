@@ -38,7 +38,7 @@ jobs:
           SOURCE_RUN_ID: ${{ inputs.source_run_id || github.event.workflow_run.id }}
           PROFILE: ${{ inputs.profile || 'all' }}
           AUTO_RECOVER: ${{ github.event_name == 'workflow_run' }}
-        run: python3 scripts/release.py plan
+        run: python3 Scripts/release.py plan
   publish:
     name: ${{ matrix.profile }}
     needs: plan

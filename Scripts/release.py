@@ -64,7 +64,7 @@ def verify_build(repository, run, profile, attempt):
 
 def plan():
     repository, _, run = context()
-    profiles = json.loads((ROOT / 'profiles.json').read_text())['profiles']
+    profiles = json.loads((ROOT / 'Config/profiles.json').read_text())['profiles']
     selected = os.environ.get('PROFILE', 'all')
     automatic = os.environ.get('AUTO_RECOVER') == 'true'
     if selected != 'all' and selected not in profiles:
@@ -139,7 +139,7 @@ def release_assets(directory, info):
 def publish(directory):
     repository, repo, run = context()
     profile = os.environ['PROFILE']
-    profiles = json.loads((ROOT / 'profiles.json').read_text())['profiles']
+    profiles = json.loads((ROOT / 'Config/profiles.json').read_text())['profiles']
     attempt = os.environ['SOURCE_RUN_ATTEMPT']
     if profile not in profiles:
         raise ValueError('Invalid profile')

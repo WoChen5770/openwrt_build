@@ -16,12 +16,12 @@ jobs:
       - name: Validate configuration and script syntax
         run: |
           python3 - <<'PY'
-          from scripts.build import config_for, defaults, read_json, required_for, ROOT
-          from scripts.cleanup import settings
+          from Scripts.build import config_for, defaults, read_json, required_for, ROOT
+          from Scripts.cleanup import settings
           settings()
-          for path in ROOT.glob('*.json'):
+          for path in (ROOT / 'Config').glob('*.json'):
               read_json(path)
-          for name, profile in read_json(ROOT / 'profiles.json')['profiles'].items():
+          for name, profile in read_json(ROOT / 'Config/profiles.json')['profiles'].items():
               defaults(name)
               values = config_for(profile)
               device = 'TARGET_DEVICE_' + profile['target'] + '_' + profile['subtarget'] + '_DEVICE_' + profile['device']
@@ -31,10 +31,9 @@ jobs:
               assert all(values.get(key, 'y') == 'y' for key in required_for(name, profile)), name + ': required option disabled'
               assert all(values.get(key) == expected for key, expected in profile.get('expected_config', {}).items()), name + ': driver platform configuration mismatch'
           PY
-          python3 -m py_compile scripts/*.py
+          python3 -m py_compile Scripts/*.py
           python3 -m unittest discover -s tests -v
-          while IFS= read -r script; do bash -n "$script"; done < <(find scripts legacy -name '*.sh' -type f)
-          if [[ -f Scripts/PRIVATE.sh ]]; then bash -n Scripts/PRIVATE.sh; fi
+          while IFS= read -r script; do bash -n "$script"; done < <(find Scripts -name '*.sh' -type f)
       - name: Validate GitHub Actions syntax
         env:
           ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8

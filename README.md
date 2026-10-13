@@ -51,6 +51,17 @@ Release 只提供固件镜像、带机型和日期的完整配置 `Config-*.txt`
 
 清理仅针对本项目格式且带构建指纹的正式 Release 及识别出的编译缓存，未知附件、手工 Release、草稿、预发布不处理。1 天内的 Release 受到补发保护；最近一天创建或使用的缓存不删。有构建 / 补发任务未完成时跳过。每机型仅保留最新 1 个 Release，旧版本会一并删除其对应标签，固件无法从该 Release 恢复，请自行备份需要长期留存的版本。手动运行清理默认是预览模式。推送改动本身不会立即删除现有 Release。
 
+## 目录结构
+
+```text
+.github/workflows/   构建、发布、补发、清理与检查入口
+Config/              机型配置、共享片段和 JSON 设置
+Scripts/             构建脚本、插件集成及配套资源
+tests/               配置、构建和发布回归测试
+```
+
+配置统一在 `Config/` 修改，执行逻辑统一在 `Scripts/` 维护。`Scripts/Makefiles/`、`Scripts/Patches/`、`Scripts/Files/` 和 `Scripts/uci-defaults/` 都是构建正在使用的资源，不是历史备份。
+
 ## 自定义
 
 <details>
@@ -58,10 +69,14 @@ Release 只提供固件镜像、带机型和日期的完整配置 `Config-*.txt`
 
 | 配置文件 | 用途 |
 | :--- | :--- |
-| [firmware-defaults.json](firmware-defaults.json) | 网络、主题、时区 |
-| [profiles.json](profiles.json) / [Config/](Config/) | 机型、插件 |
-| [packages.json](packages.json) | 插件源码 |
-| [build-settings.json](build-settings.json) | 并发、自动构建、保留周期 |
+| [Config/GENERAL.txt](Config/GENERAL.txt) | 全机型公共配置：基础界面、组件、编译选项 |
+| `Config/<机型>.txt` | 对应机型的硬件、插件选择，覆盖公共配置 |
+| [Config/PASSWALL-XRAY-ONLY.txt](Config/PASSWALL-XRAY-ONLY.txt) | S20P 两版及 x86 共用的 PassWall 后端配置 |
+| [Config/MT7986-AX6000.txt](Config/MT7986-AX6000.txt) | S20P MTK 专用厂商无线参数 |
+| [Config/profiles.json](Config/profiles.json) | 机型与源码对应关系、片段合并顺序、硬件校验 |
+| [Config/packages.json](Config/packages.json) | 插件源码与适用机型 |
+| [Config/firmware-defaults.json](Config/firmware-defaults.json) | 网络、主题、时区 |
+| [Config/build-settings.json](Config/build-settings.json) | 并发、自动构建、保留周期 |
 
 | 进阶选项 | 说明 |
 | :--- | :--- |
@@ -80,11 +95,11 @@ CONFIG_PACKAGE_luci-app-samba4=y
 CONFIG_PACKAGE_samba4=y
 ```
 
-合并顺序：机型/共享片段 → `Config/PRIVATE.txt` → `packages`。硬性机型约束仍会校验，QModem 源码及链接始终移除；LuCI 集合只移除 attendedsysupgrade 依赖项，不删除其他依赖。临时 / PRIVATE 中请求的选项若被 `defconfig` 丢弃会报错，不会悄悄发布缺包固件。
+合并顺序：`Config/GENERAL.txt` → 机型配置 → 该机型使用的共享片段 → `Config/PRIVATE.txt` → `packages`；具体片段顺序由 `Config/profiles.json` 的 `fragments` 列出，路径相对仓库根目录。硬性机型约束仍会校验，QModem 源码及链接始终移除；LuCI 集合只移除 attendedsysupgrade 依赖项，不删除其他依赖。临时 / PRIVATE 中请求的选项若被 `defconfig` 丢弃会报错，不会悄悄发布缺包固件。
 
 PRIVATE 文件必须提交到默认分支，GitHub Actions 才能读取；“PRIVATE”只是沿用旧项目的命名，**不是秘密存储**，配置与构建记录会公开，切勿放入 Token、私钥或私密密码。钩子为可信代码，不执行临时输入；可用环境变量 `GITHUB_WORKSPACE`、`WRT_CONFIG`（旧机型名）、`WRT_TARGET`、`WRT_SUBTARGET`、`WRT_IP`、`WRT_MARK`、`WRT_DATE`、`WRT_BRANCH`、`WRT_INFO`。这是独立 Bash 进程，不提供旧 `Packages.sh` 的内部函数。
 
-清理参数在 `build-settings.json`：`releases_keep_per_profile`（每机型保留的 Release 数）、`release_recovery_days`（补发保护期）、`cache_keep_generations`、`cache_min_age_days`；`artifact_retention_days` 单独控制 Actions 附件保留期，与补发保护期互不影响。本地可执行 `GH_TOKEN=… GITHUB_REPOSITORY=owner/repo python3 scripts/cleanup.py` 预览；只有添加 `--apply` 才删除。
+清理参数在 `Config/build-settings.json`：`releases_keep_per_profile`（每机型保留的 Release 数）、`release_recovery_days`（补发保护期）、`cache_keep_generations`、`cache_min_age_days`；`artifact_retention_days` 单独控制 Actions 附件保留期，与补发保护期互不影响。本地可执行 `GH_TOKEN=… GITHUB_REPOSITORY=owner/repo python3 Scripts/cleanup.py` 预览；只有添加 `--apply` 才删除。
 
 </details>
 

@@ -1,4 +1,4 @@
-"""Regression tests for OpenWRT-CI features and conservative publication."""
+"""Regression tests for build customization, caching and conservative publication."""
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-from scripts import build, cleanup, release
+from Scripts import build, cleanup, release
 
 
 def fixture(tree, name, content):
@@ -16,6 +16,63 @@ def fixture(tree, name, content):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content)
     return path
+
+
+class RepositoryLayoutTests(unittest.TestCase):
+    def test_plan_loads_all_profiles_from_config(self):
+        profiles = build.read_json(build.ROOT / 'Config/profiles.json')['profiles']
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
+            args = SimpleNamespace(profile='all', output_dir=output, event='workflow_dispatch',
+                                   force=True, commit=None, packages='', github_output=None)
+            with patch.object(build, 'resolve', return_value='a' * 40), \
+                    patch.object(build, 'request', return_value=b'src-git packages https://example.test/packages.git;main\n'), \
+                    patch.object(build, 'xray_lock', return_value={'version': 'test'}), \
+                    patch.object(build, 'ci_hash', return_value='b' * 64), \
+                    patch.object(build, 'run', side_effect=AssertionError('Unexpected external command')), \
+                    patch.dict(build.os.environ, {'GITHUB_REPOSITORY': 'owner/repo'}):
+                build.plan(args)
+            matrix = build.read_json(output / 'matrix.json')
+            self.assertEqual({item['profile'] for item in matrix['matrix']['include']}, set(profiles))
+            for name, profile in profiles.items():
+                with self.subTest(profile=name):
+                    lock = build.read_json(output / (name + '.json'))
+                    self.assertEqual(lock['config'], build.config_for(profile))
+                    self.assertEqual(lock['defaults'], build.defaults(name))
+                    self.assertEqual(profile['fragments'][0], 'Config/GENERAL.txt')
+                    for fragment in profile['fragments']:
+                        self.assertEqual((build.ROOT / fragment).parent, build.ROOT / 'Config')
+                        self.assertTrue((build.ROOT / fragment).is_file())
+
+    def test_integrate_loads_hooks_and_recipe_assets_from_scripts(self):
+        lock = dict(profile_id='s20p-mt76', profile={'legacy_name': 'SUPERGATEWAY-S20P-MT76'},
+                    packages={name: {'mode': name, 'commit': 'a' * 40} for name in ('mesh', 'honk')},
+                    xray=dict(version='1.2.3', tag='v1.2.3', asset='Xray-linux-arm64-v8a.zip',
+                              asset_id=123, sha256='b' * 64))
+        with tempfile.TemporaryDirectory() as directory:
+            tree = Path(directory)
+            (tree / 'package').mkdir()
+            with patch.object(build, 'run') as run:
+                build.integrate(lock, tree)
+            self.assertEqual([Path(call.args[1]) for call in run.call_args_list],
+                             [build.ROOT / 'Scripts/Mesh.sh', build.ROOT / 'Scripts/Honk.sh'])
+            for call in run.call_args_list:
+                self.assertTrue(Path(call.args[1]).is_file())
+                self.assertEqual(call.kwargs['cwd'], tree)
+            for name in ('upx-arm64-static', 'owrt-core-update'):
+                self.assertEqual((tree / 'package' / name / 'Makefile').read_bytes(),
+                                 (build.ROOT / 'Scripts/Makefiles' / (name + '.mk')).read_bytes())
+            self.assertEqual((tree / 'package/owrt-core-update/files/owrt-core-update').read_bytes(),
+                             (build.ROOT / 'Scripts/Files/core-update/owrt-core-update').read_bytes())
+            recipe = (tree / 'package/xray-core/Makefile').read_text()
+            self.assertIn('b' * 64, recipe)
+            self.assertNotIn('@XRAY_', recipe)
+
+    def test_recovery_loads_profile_registry_from_config(self):
+        with patch.object(release, 'context', return_value=('owner/repo', {}, {'id': 123})), \
+                patch.dict(release.os.environ, {'PROFILE': 'not-a-profile'}):
+            with self.assertRaisesRegex(ValueError, 'Unknown profile'):
+                release.plan()
 
 
 class CustomizationTests(unittest.TestCase):
@@ -29,9 +86,14 @@ class CustomizationTests(unittest.TestCase):
     def test_private_and_temporary_merge_order(self):
         with tempfile.TemporaryDirectory() as directory, patch.object(build, 'ROOT', Path(directory)):
             root = Path(directory)
-            fixture(root, 'base.config', 'CONFIG_PACKAGE_curl=y\n')
+            fixture(root, 'Config/GENERAL.txt', 'CONFIG_PACKAGE_curl=y\n')
+            fixture(root, 'Config/DEVICE.txt', 'CONFIG_PACKAGE_curl=n\nCONFIG_PACKAGE_samba4=n\n')
+            fixture(root, 'Config/FEATURE.txt', 'CONFIG_PACKAGE_curl=y\nCONFIG_PACKAGE_samba4=m\n')
+            profile = {'fragments': ['Config/GENERAL.txt', 'Config/DEVICE.txt', 'Config/FEATURE.txt']}
+            self.assertEqual(build.config_for(profile), {'PACKAGE_curl': 'y', 'PACKAGE_samba4': 'm'})
             fixture(root, 'Config/PRIVATE.txt', 'CONFIG_PACKAGE_curl=n\nCONFIG_PACKAGE_samba4=y\n')
-            self.assertEqual(build.config_for({'fragments': ['base.config']}, 'CONFIG_PACKAGE_curl=m'),
+            self.assertEqual(build.config_for(profile), {'PACKAGE_curl': 'n', 'PACKAGE_samba4': 'y'})
+            self.assertEqual(build.config_for(profile, 'CONFIG_PACKAGE_curl=m'),
                              {'PACKAGE_curl': 'm', 'PACKAGE_samba4': 'y'})
 
     def test_temporary_configuration_has_a_distinct_schedule_marker(self):
@@ -158,7 +220,7 @@ class PublicationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             tree = root / 'openwrt'
-            profile = build.read_json(build.ROOT / 'profiles.json')['profiles']['s20p-mt76']
+            profile = build.read_json(build.ROOT / 'Config/profiles.json')['profiles']['s20p-mt76']
             identity = dict(profile_id='s20p-mt76', repository_owner='owner', build_date='26.10.12-09.00.00',
                             built_at='2026-10-12T01:00:00Z', run_id='123', run_attempt='1', ci_commit='e' * 40)
             lock = dict(profile_id='s20p-mt76', profile=profile, defaults=build.defaults('s20p-mt76'), config={},

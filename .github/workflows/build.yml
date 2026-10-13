@@ -57,7 +57,7 @@ jobs:
           args=(--profile "$PROFILE" --event "$EVENT_NAME" --packages "$PACKAGES" --github-output "$GITHUB_OUTPUT")
           if [[ -n "$SOURCE_COMMIT" ]]; then args+=(--commit "$SOURCE_COMMIT"); fi
           if [[ "$FORCE" == true ]]; then args+=(--force); fi
-          python3 scripts/build.py plan "${args[@]}"
+          python3 Scripts/build.py plan "${args[@]}"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         id: plan-artifact
         if: steps.plan.outputs.has_builds == 'true'

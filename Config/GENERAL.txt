@@ -1,3 +1,10 @@
+#公共界面与基础组件
+CONFIG_PACKAGE_luci=y
+CONFIG_PACKAGE_luci-ssl-openssl=y
+CONFIG_PACKAGE_luci-theme-bootstrap=y
+CONFIG_PACKAGE_luci-theme-shadcn=y
+CONFIG_LUCI_LANG_zh_Hans=y
+CONFIG_PACKAGE_ca-bundle=y
 #默认插件
 CONFIG_PACKAGE_luci-app-bandix=n
 CONFIG_PACKAGE_bandix=n
@@ -29,7 +36,7 @@ CONFIG_PACKAGE_luci-app-partexp=n
 CONFIG_PACKAGE_luci-app-fm350=n
 CONFIG_PACKAGE_luci-app-mt5700=n
 CONFIG_PACKAGE_luci-app-mt5700m=n
-#完全禁用 QModem（源码及 feeds 链接由 scripts/build.py 一并移除）
+#完全禁用 QModem（源码及 feeds 链接由 Scripts/build.py 一并移除）
 CONFIG_PACKAGE_qmodem=n
 CONFIG_PACKAGE_luci-app-qmodem=n
 CONFIG_PACKAGE_luci-app-qmodem-next=n
@@ -39,11 +46,13 @@ CONFIG_PACKAGE_luci-i18n-qmodem-next-zh-cn=n
 CONFIG_PACKAGE_luci-i18n-qmodem-generic-zh-cn=n
 #参数调整
 CONFIG_CCACHE=y
+CONFIG_CCACHE_DIR=""
 CONFIG_DEVEL=y
 CONFIG_FEED_video=n
 CONFIG_FEED_pon_drivers=n
 CONFIG_FEED_pon_userspace=n
 CONFIG_TARGET_MULTI_PROFILE=y
+CONFIG_TARGET_ALL_PROFILES=n
 CONFIG_TARGET_PER_DEVICE_ROOTFS=y
 CONFIG_TARGET_ROOTFS_INITRAMFS=n
 #内核调整

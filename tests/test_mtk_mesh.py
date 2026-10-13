@@ -5,16 +5,16 @@ import subprocess
 import tempfile
 import unittest
 
-from scripts import build
+from Scripts import build
 
 
 class MtkMeshTests(unittest.TestCase):
     def setUp(self):
-        self.profiles = build.read_json(build.ROOT / "profiles.json")["profiles"]
+        self.profiles = build.read_json(build.ROOT / "Config/profiles.json")["profiles"]
         self.profile = self.profiles["s20p-mtk"]
 
     def test_mesh_is_excluded_only_from_mtk(self):
-        mesh = build.read_json(build.ROOT / "packages.json")["mesh"]
+        mesh = build.read_json(build.ROOT / "Config/packages.json")["mesh"]
         self.assertNotIn("s20p-mtk", mesh["profiles"])
         self.assertNotIn("all", mesh["profiles"])
         self.assertEqual(build.config_for(self.profile)["PACKAGE_luci-app-mesh"], "n")
@@ -36,12 +36,12 @@ class MtkMeshTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Forbidden CONFIG_PACKAGE_luci-app-mesh"):
             build.validate_config("s20p-mtk", self.profile, content)
 
-    def test_legacy_integration_skips_mtk_before_fetching(self):
+    def test_mesh_integration_skips_mtk_before_fetching(self):
         env = {**os.environ, "WRT_CONFIG": self.profile["legacy_name"]}
         env.pop("GITHUB_WORKSPACE", None)
         env.pop("MESH_COMMIT", None)
         with tempfile.TemporaryDirectory() as directory:
-            result = subprocess.run(["bash", str(build.ROOT / "legacy/Mesh.sh")],
+            result = subprocess.run(["bash", str(build.ROOT / "Scripts/Mesh.sh")],
                                     cwd=directory, env=env, capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(list(Path(directory).iterdir()), [])

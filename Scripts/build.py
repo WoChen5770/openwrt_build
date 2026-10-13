@@ -184,8 +184,8 @@ def validate_config(profile_id, profile, content, selections=None):
 
 
 def defaults(profile_id=None):
-    values = read_json(ROOT / "firmware-defaults.json")
-    profiles = read_json(ROOT / "profiles.json")["profiles"]
+    values = read_json(ROOT / "Config/firmware-defaults.json")
+    profiles = read_json(ROOT / "Config/profiles.json")["profiles"]
     if profile_id is not None:
         values["hostname"] = profiles[profile_id]["hostname"]
     return values
@@ -226,11 +226,11 @@ def config_marker(values):
 
 
 def plan(args):
-    settings = read_json(ROOT / "build-settings.json")
+    settings = read_json(ROOT / "Config/build-settings.json")
     matrix = []
     output = Path(args.output_dir)
     output.mkdir(parents=True, exist_ok=True)
-    specs = read_json(ROOT / "profiles.json")
+    specs = read_json(ROOT / "Config/profiles.json")
     if args.profile != "all" and args.profile not in specs["profiles"]:
         raise ValueError("Unknown profile")
     if args.commit and args.profile == "all":
@@ -245,7 +245,7 @@ def plan(args):
         if args.event == "schedule" or not args.force:
             pages = json.loads(run("gh", "api", "repos/" + os.environ["GITHUB_REPOSITORY"] + "/releases?per_page=100", "--paginate", "--slurp"))
             known = [r for page in pages for r in page if not r["draft"]]
-        packages = read_json(ROOT / "packages.json")
+        packages = read_json(ROOT / "Config/packages.json")
         sources = {}
         source_commits = {}
         package_commits = {}
@@ -343,7 +343,7 @@ def integrate(lock, tree):
                 env["MESH_COMMIT"] = package["commit"]
             else:
                 env["HONK_COMMIT"] = package["commit"]
-            run("bash", str(ROOT / "legacy" / ("Mesh.sh" if mode == "mesh" else "Honk.sh")), cwd=tree, env=env)
+            run("bash", str(ROOT / "Scripts" / ("Mesh.sh" if mode == "mesh" else "Honk.sh")), cwd=tree, env=env)
             continue
         with tempfile.TemporaryDirectory(prefix="owrt-package-") as temporary:
             clone = Path(temporary) / "source"
@@ -367,7 +367,7 @@ def integrate(lock, tree):
         remove_packages(tree, ["xray-core"])
         target = tree / "package/xray-core"
         target.mkdir()
-        template = (ROOT / "legacy/Makefiles/xray-core-prebuilt.mk").read_text()
+        template = (ROOT / "Scripts/Makefiles/xray-core-prebuilt.mk").read_text()
         replacements = dict(XRAY_VERSION=xray["version"], XRAY_TAG=xray["tag"], XRAY_ASSET=xray["asset"],
                             XRAY_SOURCE=xray["asset"].removesuffix(".zip") + "-" + xray["version"] + "-" + str(xray["asset_id"]) + ".zip",
                             XRAY_HASH=xray["sha256"], XRAY_ARCH_DEPENDS="@x86_64" if lock["profile_id"] == "x86-64" else "@aarch64",
@@ -379,10 +379,10 @@ def integrate(lock, tree):
     for name in ("upx-arm64-static", "owrt-core-update"):
         target = tree / "package" / name
         target.mkdir(exist_ok=True)
-        shutil.copy2(ROOT / "legacy/Makefiles" / (name + ".mk"), target / "Makefile")
+        shutil.copy2(ROOT / "Scripts/Makefiles" / (name + ".mk"), target / "Makefile")
     target = tree / "package/owrt-core-update/files"
     target.mkdir(exist_ok=True)
-    shutil.copy2(ROOT / "legacy/Files/core-update/owrt-core-update", target / "owrt-core-update")
+    shutil.copy2(ROOT / "Scripts/Files/core-update/owrt-core-update", target / "owrt-core-update")
     # Maintain the old Rust build fix without unrelated theme/download hacks.
     for path in (tree / "feeds/packages").glob("*/rust/Makefile"):
         path.write_text(path.read_text().replace("ci-llvm=true", "ci-llvm=false"))
@@ -419,7 +419,7 @@ def apply_defaults(tree, values, vendor=False):
         path.write_text(content)
     overlay = tree / "files/etc/uci-defaults"
     overlay.mkdir(parents=True, exist_ok=True)
-    for original in (ROOT / "legacy/uci-defaults").iterdir():
+    for original in (ROOT / "Scripts/uci-defaults").iterdir():
         shutil.copy2(original, overlay / original.name)
     # Only system settings; never overwrite restored wireless/network configuration.
     script = "#!/bin/sh\nuci set system.@system[0].hostname='" + values["hostname"] + "'\n"

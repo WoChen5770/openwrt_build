@@ -44,4 +44,4 @@ jobs:
           PROFILE: ${{ inputs.profile }}
           SOURCE_RUN_ID: ${{ inputs.source_run_id }}
           SOURCE_RUN_ATTEMPT: ${{ inputs.source_run_attempt }}
-        run: python3 scripts/release.py publish --directory firmware
+        run: python3 Scripts/release.py publish --directory firmware

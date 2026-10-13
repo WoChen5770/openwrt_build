@@ -30,7 +30,7 @@ test -f "$MESH_TMP/source/root/etc/config/mesh"
 # Filogic and qualcommbe default to full wpad-openssl, which includes 802.11s/SAE.
 # Do not install the conflicting wpad-mesh-openssl variant alongside it.
 patch --batch --forward --fuzz=0 -d "$MESH_TMP/source" -p1 \
-	< "$GITHUB_WORKSPACE/legacy/Patches/mesh-wpad-openssl.patch"
+	< "$GITHUB_WORKSPACE/Scripts/Patches/mesh-wpad-openssl.patch"
 
 # Fetch and validate first; remove only exact-name packages and feeds links.
 find ./package ./feeds/luci ./feeds/packages -maxdepth 3 \

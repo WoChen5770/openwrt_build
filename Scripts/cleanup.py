@@ -19,7 +19,7 @@ def timestamp(value):
 
 
 def settings():
-    values = read_json(ROOT / 'build-settings.json')
+    values = read_json(ROOT / 'Config/build-settings.json')
     for key in ('releases_keep_per_profile', 'release_recovery_days', 'cache_keep_generations', 'cache_min_age_days'):
         if type(values[key]) is not int or values[key] < 1:
             raise ValueError('Retention must be a positive integer: ' + key)
@@ -88,7 +88,7 @@ def main():
     repository = os.environ['GITHUB_REPOSITORY']
     base = 'repos/' + repository
     values = settings()
-    profiles = read_json(ROOT / 'profiles.json')['profiles']
+    profiles = read_json(ROOT / 'Config/profiles.json')['profiles']
     # Do not disrupt a compilation, publication or publication recovery.
     if active_builds(base):
         print('Build/recovery active: cleanup skipped')

@@ -33,4 +33,4 @@ jobs:
         run: |
           args=()
           if [[ "$APPLY" == true ]]; then args+=(--apply); fi
-          python3 scripts/cleanup.py "${args[@]}"
+          python3 Scripts/cleanup.py "${args[@]}"

@@ -3,7 +3,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from scripts import build
+from Scripts import build
 
 
 # Device packages from VIKINGYFY/immortalwrt at
@@ -33,7 +33,7 @@ def serialize(values):
 
 class HardwareProfileTests(unittest.TestCase):
     def setUp(self):
-        self.profiles = build.read_json(build.ROOT / "profiles.json")["profiles"]
+        self.profiles = build.read_json(build.ROOT / "Config/profiles.json")["profiles"]
 
     def valid_config(self, name):
         profile = self.profiles[name]
