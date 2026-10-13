@@ -53,6 +53,14 @@ class HardwareProfileTests(unittest.TestCase):
                     self.assertIn(key, build.required_for(name, profile))
                     self.assertIn(package, profile["required_image_packages"])
 
+    def test_mtk_vendor_options_are_defined_in_device_config(self):
+        profile = self.profiles["s20p-mtk"]
+        device = build.ROOT / "Config/SUPERGATEWAY-S20P-MTK.txt"
+        values = build.merge_config([device.read_text()])
+        for key, expected in profile["expected_config"].items():
+            with self.subTest(option=key):
+                self.assertEqual(values.get(key), expected)
+
     def test_hardware_cannot_be_missing_or_only_built_as_module(self):
         for name, packages in HARDWARE_PACKAGES.items():
             profile = self.profiles[name]

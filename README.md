@@ -70,9 +70,8 @@ tests/               配置、构建和发布回归测试
 | 配置文件 | 用途 |
 | :--- | :--- |
 | [Config/GENERAL.txt](Config/GENERAL.txt) | 全机型公共配置：基础界面、组件、编译选项 |
-| `Config/<机型>.txt` | 对应机型的硬件、插件选择，覆盖公共配置 |
+| `Config/<机型>.txt` | 对应机型的硬件、插件及专用驱动参数，覆盖公共配置 |
 | [Config/PASSWALL-XRAY-ONLY.txt](Config/PASSWALL-XRAY-ONLY.txt) | S20P 两版及 x86 共用的 PassWall 后端配置 |
-| [Config/MT7986-AX6000.txt](Config/MT7986-AX6000.txt) | S20P MTK 专用厂商无线参数 |
 | [Config/profiles.json](Config/profiles.json) | 机型与源码对应关系、片段合并顺序、硬件校验 |
 | [Config/packages.json](Config/packages.json) | 插件源码与适用机型 |
 | [Config/firmware-defaults.json](Config/firmware-defaults.json) | 网络、主题、时区 |

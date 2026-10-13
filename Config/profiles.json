@@ -83,7 +83,7 @@
       "variant": "mtk-vendor",
       "legacy_name": "SUPERGATEWAY-S20P-MTK",
       "hostname": "S20P-MTK",
-      "fragments": ["Config/GENERAL.txt", "Config/SUPERGATEWAY-S20P-MTK.txt", "Config/PASSWALL-XRAY-ONLY.txt", "Config/MT7986-AX6000.txt"],
+      "fragments": ["Config/GENERAL.txt", "Config/SUPERGATEWAY-S20P-MTK.txt", "Config/PASSWALL-XRAY-ONLY.txt"],
       "expected_config": {
         "MTK_CONNINFRA_APSOC": "y",
         "MTK_CONNINFRA_APSOC_MT7986": "y",
