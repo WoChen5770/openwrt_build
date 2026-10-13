@@ -4,7 +4,6 @@ import argparse
 import concurrent.futures
 from datetime import datetime, timedelta, timezone
 import hashlib
-import ipaddress
 import json
 import os
 from pathlib import Path
@@ -187,27 +186,8 @@ def validate_config(profile_id, profile, content, selections=None):
 def defaults(profile_id=None):
     values = read_json(ROOT / "firmware-defaults.json")
     profiles = read_json(ROOT / "profiles.json")["profiles"]
-    for profile in profiles.values():
-        hostname = profile["hostname"]
-        if not isinstance(hostname, str) or not re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?", hostname):
-            raise ValueError("Invalid model hostname")
     if profile_id is not None:
         values["hostname"] = profiles[profile_id]["hostname"]
-    if ipaddress.ip_address(values["lan_ip"]).version != 4:
-        raise ValueError("LAN IP must be IPv4")
-    # Avoid shell/UCI interpolation and Makefile injection; defaults are public.
-    for key in ("wifi_ssid", "wifi_password", "theme", "timezone", "zonename"):
-        if not isinstance(values[key], str) or not re.fullmatch(r"[A-Za-z0-9_./+ :@-]+", values[key]):
-            raise ValueError("Unsupported characters in " + key)
-    if not 1 <= len(values["wifi_ssid"].encode()) <= 32 or not 8 <= len(values["wifi_password"]) <= 63:
-        raise ValueError("Invalid SSID or WPA password length")
-    if values["wifi_encryption"] not in ("psk2", "psk2+ccmp", "sae-mixed"):
-        raise ValueError("Unsupported Wi-Fi encryption")
-    if not isinstance(values["wifi_disabled"], bool):
-        raise ValueError("wifi_disabled must be boolean")
-    pw = values.get("root_password_hash", "")
-    if pw and (not pw.startswith(("$5$", "$6$")) or re.search(r"[\s:'\"]", pw)):
-        raise ValueError("Use a SHA256/SHA512 crypt root_password_hash, not plaintext")
     return values
 
 

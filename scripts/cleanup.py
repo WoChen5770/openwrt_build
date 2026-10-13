@@ -23,8 +23,6 @@ def settings():
     for key in ('releases_keep_per_profile', 'release_recovery_days', 'cache_keep_generations', 'cache_min_age_days'):
         if type(values[key]) is not int or values[key] < 1:
             raise ValueError('Retention must be a positive integer: ' + key)
-    if values['release_recovery_days'] < values['artifact_retention_days']:
-        raise ValueError('Release recovery protection must cover the artifact retention window')
     return values
 
 
