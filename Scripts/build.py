@@ -368,6 +368,8 @@ def integrate(lock, tree):
             else:
                 for directory in dirs:
                     shutil.copytree(clone / directory, tree / "package" / directory, ignore=shutil.ignore_patterns(".git", ".github"))
+    if "luci-app-adguardhome" in lock["packages"]:
+        use_packaged_adguardhome(tree)
     if "xray" in lock:
         xray = lock["xray"]
         remove_packages(tree, ["xray-core"])
@@ -392,6 +394,16 @@ def integrate(lock, tree):
     # Maintain the old Rust build fix without unrelated theme/download hacks.
     for path in (tree / "feeds/packages").glob("*/rust/Makefile"):
         path.write_text(path.read_text().replace("ci-llvm=true", "ci-llvm=false"))
+
+
+def use_packaged_adguardhome(tree):
+    # Use the upstream core without changing its version, Go or service files.
+    path = tree / "package/custom/luci-app-adguardhome/root/etc/config/AdGuardHome"
+    content, count = re.subn(r"(?m)^([ \t]*option[ \t]+binpath[ \t]+)'[^'\n]*'[ \t]*$",
+                            lambda m: m[1] + "'/usr/bin/AdGuardHome'", path.read_text())
+    if count != 1:
+        raise ValueError("AdGuard Home binary path defaults changed upstream")
+    path.write_text(content)
 
 
 def apply_kernel_config(tree, profile):

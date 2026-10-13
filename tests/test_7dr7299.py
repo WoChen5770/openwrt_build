@@ -88,11 +88,43 @@ class SevenDrProfileTests(unittest.TestCase):
             self.assertEqual(values[key], expected)
             if key != "TARGET_ROOTFS_INITRAMFS":
                 self.assertEqual(device_values[key], expected)
+            wrong = "y" if expected == "n" else "n"
             with self.subTest(option=key), self.assertRaisesRegex(ValueError, "Expected CONFIG_" + key):
-                build.validate_config(VARIANTS[1], profile, serialize({**values, key: "n"}))
+                build.validate_config(VARIANTS[1], profile, serialize({**values, key: wrong}))
         for key in profile["forbidden"]:
             with self.subTest(option=key), self.assertRaisesRegex(ValueError, "Forbidden CONFIG_" + key):
                 build.validate_config(VARIANTS[1], profile, serialize({**values, key: "y"}))
+
+    def test_vendor_firmware_and_default_package_exclusions(self):
+        profile = self.specs["profiles"][VARIANTS[1]]
+        values = build.config_for(profile)
+        # Per-device roots force subtarget defaults such as wpad back to =m.
+        self.assertEqual(values["TARGET_PER_DEVICE_ROOTFS"], "n")
+        self.assertEqual(profile["expected_config"]["TARGET_PER_DEVICE_ROOTFS"], "n")
+        self.assertEqual(values["PACKAGE_wpad-openssl"], "n")
+        # The vendor mt_hwifi package installs its own MT7992 firmware blobs.
+        self.assertEqual(values["PACKAGE_kmod-mt7992-firmware"], "n")
+        self.assertIn("kmod-mt7992-firmware", profile["forbidden_image_packages"])
+        for package in ("kmod-mt_hwifi", "kmod-mt7992", "kmod-mt799a", "kmod-mt_wifi7"):
+            self.assertEqual(values["PACKAGE_" + package], "y")
+            self.assertIn(package, profile["required_image_packages"])
+        actual = self.valid_config(VARIANTS[1])
+        actual.pop("PACKAGE_kmod-mt7992-firmware")
+        build.validate_config(VARIANTS[1], profile, serialize(actual))
+        for state in ("y", "m"):
+            with self.assertRaisesRegex(ValueError, "Forbidden CONFIG_PACKAGE_wpad-openssl"):
+                build.validate_config(VARIANTS[1], profile, serialize({**actual, "PACKAGE_wpad-openssl": state}))
+        self.assertEqual(build.config_for(self.specs["profiles"][VARIANTS[0]])["PACKAGE_kmod-mt7992-firmware"], "y")
+
+    def test_legacy_adguardhome_ui_is_scoped_to_vendor_profile(self):
+        package = self.packages["luci-app-adguardhome"]
+        self.assertEqual(package["profiles"], [VARIANTS[1]])
+        self.assertEqual(package["repository"], "https://github.com/w9315273/luci-app-adguardhome.git")
+        self.assertEqual(package["mode"], "whole")
+        self.assertRegex(package["commit"], build.SHA)
+        values = build.config_for(self.specs["profiles"][VARIANTS[1]])
+        self.assertEqual(values["PACKAGE_adguardhome"], "y")
+        self.assertEqual(values["PACKAGE_luci-app-adguardhome"], "y")
 
     def test_plugin_selection_keeps_upstream_go(self):
         for package in ("passwall", "daed", "easytier", "honk"):
@@ -129,6 +161,37 @@ class SevenDrProfileTests(unittest.TestCase):
 
 
 class SevenDrPreparationTests(unittest.TestCase):
+    def test_adguardhome_ui_uses_existing_core_without_replacing_services(self):
+        with tempfile.TemporaryDirectory() as directory:
+            tree = Path(directory)
+            compiler = fixture(tree, "feeds/packages/lang/golang/Makefile", "upstream compiler\n")
+            core = fixture(tree, "feeds/packages/net/adguardhome/Makefile", "upstream core\n")
+            service = fixture(tree, "feeds/packages/net/adguardhome/files/adguardhome.init", "upstream service\n")
+            package = build.read_toml(build.ROOT / "Config/packages.toml")["luci-app-adguardhome"]
+            lock = dict(profile=dict(legacy_name="TPLINK-7DR7299-MTK"), packages={"luci-app-adguardhome": package})
+
+            def checkout(repo, commit, clone):
+                fixture(clone, "Makefile", "PKG_NAME:=luci-app-adguardhome\n")
+                fixture(clone, "root/etc/config/AdGuardHome", "config AdGuardHome 'AdGuardHome'\n"
+                        "\toption enabled '0'\n\toption binpath '/usr/bin/AdGuardHome/AdGuardHome'\n")
+
+            with patch.object(build, "checkout", side_effect=checkout), patch.object(build, "run") as run:
+                build.integrate(lock, tree)
+                run.assert_not_called()
+            config = tree / "package/custom/luci-app-adguardhome/root/etc/config/AdGuardHome"
+            content = config.read_text()
+            self.assertIn("option binpath '/usr/bin/AdGuardHome'", content)
+            self.assertIn("option enabled '0'", content)
+            self.assertEqual(compiler.read_text(), "upstream compiler\n")
+            self.assertEqual(core.read_text(), "upstream core\n")
+            self.assertEqual(service.read_text(), "upstream service\n")
+            build.use_packaged_adguardhome(tree)
+            self.assertEqual(config.read_text(), content)
+            for invalid in (content.replace("option binpath", "option renamed"), content + content):
+                config.write_text(invalid)
+                with self.assertRaisesRegex(ValueError, "AdGuard Home binary path defaults changed"):
+                    build.use_packaged_adguardhome(tree)
+
     def test_vendor_shell_defaults_keep_hardware_and_restore_guards(self):
         with tempfile.TemporaryDirectory() as directory:
             tree = Path(directory)

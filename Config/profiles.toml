@@ -85,7 +85,6 @@ config = "Config/TPLINK-7DR7299-MTK.txt"
 # 必选配置
 required = [
   "PACKAGE_mt798x-2p5g-phy-firmware-internal",
-  "PACKAGE_kmod-mt7992-firmware",
   "PACKAGE_mt7988-wo-firmware",
   "PACKAGE_kmod-mt798x-2p5g-phy",
   "PACKAGE_kmod-phy-rtl8261d",
@@ -120,7 +119,6 @@ required = [
 # 固件必需包
 required_image_packages = [
   "mt798x-2p5g-phy-firmware-internal",
-  "kmod-mt7992-firmware",
   "mt7988-wo-firmware",
   "kmod-mt798x-2p5g-phy",
   "kmod-phy-rtl8261d",
@@ -156,6 +154,7 @@ required_image_packages = [
 forbidden_image_packages = [
   "luci-app-mesh",
   "kmod-mac80211",
+  "kmod-mt7992-firmware",
   "wpad-openssl",
   "dawn",
   "mtwifi-cfg-ucode",
@@ -167,6 +166,7 @@ forbidden_image_packages = [
 forbidden = [
   "PACKAGE_luci-app-mesh",
   "PACKAGE_kmod-mac80211",
+  "PACKAGE_kmod-mt7992-firmware",
   "PACKAGE_wpad-openssl",
   "PACKAGE_dawn",
   "PACKAGE_mtwifi-cfg-ucode",
@@ -187,6 +187,7 @@ NET_SCH_BPF = "y"
 
 # 驱动与镜像校验
 [profiles.7dr7299-mtk.expected_config]
+TARGET_PER_DEVICE_ROOTFS = "n"
 TARGET_ROOTFS_INITRAMFS = "y"
 MTK_HWIFI_CONNAC_IF_SUPPORT = "y"
 MTK_HWIFI_MT7992 = "y"

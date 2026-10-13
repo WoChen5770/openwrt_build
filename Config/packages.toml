@@ -14,6 +14,13 @@ branch = "main"
 profiles = ["all"]
 mode = "whole"
 
+# 旧版 LuCI 的广告过滤界面
+[luci-app-adguardhome]
+repository = "https://github.com/w9315273/luci-app-adguardhome.git"
+commit = "27853f3e1a831c9fd0380c166f68c7e0e0b9736f"
+profiles = ["7dr7299-mtk"]
+mode = "whole"
+
 # 代理界面
 [passwall]
 repository = "https://github.com/Openwrt-Passwall/openwrt-passwall.git"
