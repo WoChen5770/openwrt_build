@@ -146,6 +146,7 @@ jobs:
           name: diagnostic-images-${{ inputs.profile }}-${{ github.run_attempt }}
           path: |
             ${{ env.SOURCE_DIR }}/bin/targets/**/*.bin
+            ${{ env.SOURCE_DIR }}/bin/targets/**/*.itb
             ${{ env.SOURCE_DIR }}/bin/targets/**/*.manifest
             ${{ env.SOURCE_DIR }}/bin/targets/**/*.json
             ${{ env.SOURCE_DIR }}/bin/targets/**/*.buildinfo

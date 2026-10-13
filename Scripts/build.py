@@ -388,7 +388,30 @@ def integrate(lock, tree):
         path.write_text(path.read_text().replace("ci-llvm=true", "ci-llvm=false"))
 
 
-def apply_defaults(tree, values, vendor=False):
+def apply_kernel_config(tree, profile):
+    """Scoped platform BPF settings required by the 7DR7299 reference builds."""
+    specification = profile.get("kernel_config")
+    if not specification:
+        return
+    relative = Path(specification["path"])
+    if relative.is_absolute() or ".." in relative.parts or relative.parts[:2] != ("target", "linux"):
+        raise ValueError("Invalid kernel config path")
+    path = tree / relative
+    if not path.is_file():
+        raise ValueError("Kernel config changed upstream: " + str(relative))
+    options = specification["options"]
+    if any(not re.fullmatch(r"[A-Z0-9_]+", key) or value not in ("y", "m", "n") for key, value in options.items()):
+        raise ValueError("Invalid kernel config option")
+    lines = []
+    for line in path.read_text().splitlines():
+        match = re.fullmatch(r"(?:CONFIG_([^=]+)=.*|# CONFIG_(\S+) is not set)", line)
+        if not match or (match[1] or match[2]) not in options:
+            lines.append(line)
+    lines.extend("CONFIG_" + key + "=" + value for key, value in sorted(options.items()))
+    path.write_text("\n".join(lines) + "\n")
+
+
+def apply_defaults(tree, values, vendor=False, wireless_defaults=None):
     generator = tree / "package/base-files/files/bin/config_generate"
     content, count = re.subn(r"192\.168\.\d+\.\d+", values["lan_ip"], generator.read_text())
     if not count:
@@ -397,7 +420,24 @@ def apply_defaults(tree, values, vendor=False):
     if not count:
         raise ValueError("Hostname default generator changed upstream")
     generator.write_text(content)
-    if vendor:
+    if vendor and wireless_defaults == "mtwifi-shell":
+        path = tree / "package/mtk/applications/mtwifi-cfg/files/mtwifi.sh"
+        content = path.read_text()
+        for key, value in (("ssid", "'" + values["wifi_ssid"] + "'"),
+                           ("encryption", "'" + values["wifi_encryption"] + "'")):
+            pattern = r"(?m)^([ \t]*set wireless\.default_\$\{dev\}\." + key + r"=).*$"
+            replacement = lambda m: m[1] + value
+            if key == "encryption":
+                def replacement(match):
+                    indent = re.match(r"[ \t]*", match[1])[0]
+                    return (match[1] + value + "\n" + indent + "set wireless.default_${dev}.key='" +
+                            values["wifi_password"] + "'\n" + indent + "set wireless.default_${dev}.disabled='" +
+                            str(int(values["wifi_disabled"])) + "'")
+            content, count = re.subn(pattern, replacement, content)
+            if count != 1:
+                raise ValueError("Vendor shell Wi-Fi " + key + " defaults changed upstream")
+        path.write_text(content)
+    elif vendor:
         path = tree / "package/mtk/applications/mtwifi-cfg-ucode/files/lib/wifi/mtwifi.uc"
         content = path.read_text()
         for anchor, value in ((r'"ssid": defs\.ssid,', '"ssid": ' + json.dumps(values["wifi_ssid"]) + ','),
@@ -562,7 +602,9 @@ def prepare(args):
         env.pop("GITHUB_TOKEN", None)
         run("bash", str(private), cwd=tree, env=env)
     remove_qmodem(tree)
-    apply_defaults(tree, lock["defaults"], lock["profile"]["source"] == "chasey")
+    vendor = lock["profile"].get("variant") == "mtk-vendor" or lock["profile"]["source"] == "chasey"
+    apply_defaults(tree, lock["defaults"], vendor, lock["profile"].get("wireless_defaults"))
+    apply_kernel_config(tree, lock["profile"])
     customize_luci(tree, lock["defaults"], identity)
     write_json(tree / ".build-identity.json", identity)
     write_json(tree / "files/usr/share/openwrt-build/build-info.json", identity)
@@ -668,6 +710,12 @@ def release_notes(lock, identity=None, config_name="Config-*.txt"):
         if profile["source"] == "chasey":
             notes += "不集成 luci-app-mesh（厂商无线驱动未上报 mesh point 能力）；daed / honk 默认关闭，HNAT / WARP 与透明代理需验证兼容性。"
         notes += "\n"
+    if lock["profile_id"].startswith("7dr7299-"):
+        notes += "\n> 仅适用于 TP-Link TL-7DR7299 v1。MT76 / MTK 的引导器及分区布局需分别核对，不保证直接互刷。"
+        notes += "sysupgrade.itb 用于匹配布局的 OpenWrt 升级；recovery.itb 为恢复镜像，不是原厂首次刷入包；不发布引导器。"
+        if profile["variant"] == "mtk-vendor":
+            notes += "闭源版不集成 Mesh / DAWN；daed / honk 默认关闭，启用前验证 HNAT / WARP 兼容性。"
+        notes += "\n"
     notes += "\n<details>\n<summary>源码与文件</summary>\n\n"
     notes += "源码：[" + source["branch"] + " · " + source["commit"][:7] + "](" + repository + "/commit/" + source["commit"] + ")。\n\n"
     notes += "校验：`sha256sums` · 完整配置：`" + config_name + "` · 包清单：`*.manifest` · 构建记录：`build-info.json`。\n\n"
@@ -689,6 +737,11 @@ def collect(args):
     if identity["profile_id"] != lock["profile_id"]:
         raise ValueError("Build identity profile mismatch")
     manifest = validate_image_packages(target, profile, lock["profile_id"])
+    if lock["profile_id"].startswith("7dr7299-"):
+        for kind in ("sysupgrade", "recovery"):
+            candidates = list(target.glob("*" + profile["image_match"] + "-" + kind + ".itb"))
+            if len(candidates) != 1:
+                raise ValueError("Expected one 7DR7299 " + kind + ".itb image")
     if lock["profile_id"] == "s20p-mtk":
         sysupgrades = list(target.glob("*" + profile["image_match"] + "*sysupgrade*.bin"))
         if len(sysupgrades) != 1:
@@ -706,6 +759,7 @@ def collect(args):
             continue
         is_image = profile["image_match"] in path.name and path.name.endswith(IMAGE_EXTENSIONS) and (
             any(s in path.name for s in ("sysupgrade", "factory", "initramfs")) or
+            (lock["profile_id"].startswith("7dr7299-") and path.name.endswith("-recovery.itb")) or
             (profile["target"] == "x86" and re.search(r"\.(img(?:\.gz)?|vmdk|vdi|qcow2)$", path.name)))
         if is_image:
             name = dated_filename(path.name, stamp)

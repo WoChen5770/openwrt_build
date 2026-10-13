@@ -1,9 +1,9 @@
 #!/bin/bash
-# S20P / x86: install pinned upstream packages alongside daed, without enabling honk.
+# S20P / 7DR7299 / x86: install pinned packages alongside daed, without enabling honk.
 set -euo pipefail
 
 case "${WRT_CONFIG:-}" in
-	SUPERGATEWAY-S20P-MT76|SUPERGATEWAY-S20P-MTK|X86) ;;
+	SUPERGATEWAY-S20P-MT76|SUPERGATEWAY-S20P-MTK|X86|TPLINK-7DR7299-MT76|TPLINK-7DR7299-MTK) ;;
 	*) exit 0 ;;
 esac
 

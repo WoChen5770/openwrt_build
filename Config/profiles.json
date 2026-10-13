@@ -7,9 +7,73 @@
     "chasey": {
       "repository": "https://github.com/chasey-dev/immortalwrt-mt798x-rebase.git",
       "branch": "25.12"
+    },
+    "padavan-7dr7299": {
+      "repository": "https://github.com/padavanonly/immortalwrt-mt798x-6.6.git",
+      "branch": "mt798x-mt799x-6.6-mtwifi"
     }
   },
   "profiles": {
+    "7dr7299-mt76": {
+      "display_name": "TP-Link TL-7DR7299 v1 · MT76",
+      "source": "viking",
+      "target": "mediatek",
+      "subtarget": "filogic",
+      "device": "tplink_tl-7dr7299-v1",
+      "image_match": "tplink_tl-7dr7299-v1",
+      "variant": "mt76",
+      "legacy_name": "TPLINK-7DR7299-MT76",
+      "hostname": "7DR7299-MT76",
+      "fragments": ["Config/GENERAL.txt", "Config/TPLINK-7DR7299-MT76.txt", "Config/PASSWALL-XRAY-ONLY.txt", "Config/7DR7299-COMMON.txt"],
+      "kernel_config": {"path": "target/linux/mediatek/filogic/config-6.18", "options": {"BPF_SYSCALL": "y", "BPF_JIT": "y", "NET_SCH_BPF": "y"}},
+      "required": ["PACKAGE_kmod-mt7992-firmware", "PACKAGE_mt7988-wo-firmware", "PACKAGE_kmod-dsa-rtl837x", "PACKAGE_kmod-sfp", "PACKAGE_kmod-usb3", "PACKAGE_automount"],
+      "expected_config": {"TARGET_ROOTFS_INITRAMFS": "y"},
+      "required_image_packages": ["kmod-mt7992-firmware", "mt7988-wo-firmware", "kmod-dsa-rtl837x", "kmod-sfp", "kmod-usb3", "automount"],
+      "forbidden_image_packages": ["kmod-mt_wifi", "kmod-mt_wifi7", "mtwifi-cfg"],
+      "forbidden": ["PACKAGE_kmod-mt_wifi", "PACKAGE_kmod-mt_wifi7", "PACKAGE_mtwifi-cfg", "PACKAGE_mtwifi-cfg-ucode"]
+    },
+    "7dr7299-mtk": {
+      "display_name": "TP-Link TL-7DR7299 v1 · MTK",
+      "source": "padavan-7dr7299",
+      "target": "mediatek",
+      "subtarget": "filogic_a73",
+      "device": "tplink_tl-7dr7299-v1",
+      "image_match": "tplink_tl-7dr7299-v1",
+      "variant": "mtk-vendor",
+      "wireless_defaults": "mtwifi-shell",
+      "legacy_name": "TPLINK-7DR7299-MTK",
+      "hostname": "7DR7299-MTK",
+      "fragments": ["Config/GENERAL.txt", "Config/TPLINK-7DR7299-MTK.txt", "Config/PASSWALL-XRAY-ONLY.txt", "Config/7DR7299-COMMON.txt"],
+      "kernel_config": {"path": "target/linux/mediatek/filogic_a73/config-6.6", "options": {"BPF_SYSCALL": "y", "BPF_JIT": "y", "NET_SCH_BPF": "y"}},
+      "expected_config": {
+        "TARGET_ROOTFS_INITRAMFS": "y",
+        "MTK_HWIFI_CONNAC_IF_SUPPORT": "y",
+        "MTK_HWIFI_MT7992": "y",
+        "MTK_HWIFI_MT799A": "y",
+        "MTK_HWIFI_PCI_SUPPORT": "y",
+        "MTK_HWIFI_WED_SUPPORT": "y",
+        "MTK_WIFI7_CHIP_MT7992": "y",
+        "MTK_WIFI7_FIRST_IF_MT7992": "y",
+        "MTK_WIFI7_SECOND_IF_MT7992": "y",
+        "MTK_WIFI7_MT_WIFI": "m",
+        "MTK_WIFI7_MT_AP_SUPPORT": "m",
+        "MTK_WIFI7_MODE_AP": "m",
+        "MTK_WIFI7_WHNAT_SUPPORT": "m",
+        "MTK_WIFI7_HWIFI_SUPPORT": "y",
+        "MTK_WIFI7_SKU_TYPE": "\"BE7200\"",
+        "WARP_CHIPSET": "\"mt7988\"",
+        "WARP_VERSION": "\"3\"",
+        "WARP_CONFIG_MODE": "0",
+        "first_card": "y",
+        "first_card_name": "\"MT7992\"",
+        "second_card": "y",
+        "second_card_name": "\"MT7992\""
+      },
+      "required": ["PACKAGE_mt798x-2p5g-phy-firmware-internal", "PACKAGE_kmod-mt7992-firmware", "PACKAGE_mt7988-wo-firmware", "PACKAGE_kmod-mt798x-2p5g-phy", "PACKAGE_kmod-phy-rtl8261d", "PACKAGE_kmod-switch-rtl837x", "PACKAGE_swconfig", "PACKAGE_kmod-sfp", "PACKAGE_kmod-usb3", "PACKAGE_automount", "PACKAGE_wireless-regdb", "PACKAGE_kmod-mediatek_hnat", "PACKAGE_kmod-warp", "PACKAGE_kmod-mt_wifi_cmn", "PACKAGE_kmod-mt_wifi7", "PACKAGE_kmod-mt_hwifi", "PACKAGE_kmod-mtk_pci", "PACKAGE_kmod-mtk_wed", "PACKAGE_kmod-connac_if", "PACKAGE_kmod-mt7992", "PACKAGE_kmod-mt799a", "PACKAGE_mtwifi-cfg", "PACKAGE_luci-app-mtwifi-cfg", "PACKAGE_luci-app-eqos-mtk", "PACKAGE_luci-app-turboacc-mtk", "PACKAGE_wifi-dats", "PACKAGE_wifi-scripts", "PACKAGE_iwinfo", "PACKAGE_datconf-lua", "PACKAGE_lua-cjson", "PACKAGE_wireless-tools"],
+      "required_image_packages": ["mt798x-2p5g-phy-firmware-internal", "kmod-mt7992-firmware", "mt7988-wo-firmware", "kmod-mt798x-2p5g-phy", "kmod-phy-rtl8261d", "kmod-switch-rtl837x", "swconfig", "kmod-sfp", "kmod-usb3", "automount", "wireless-regdb", "kmod-mediatek_hnat", "kmod-warp", "kmod-mt_wifi_cmn", "kmod-mt_wifi7", "kmod-mt_hwifi", "kmod-mtk_pci", "kmod-mtk_wed", "kmod-connac_if", "kmod-mt7992", "kmod-mt799a", "mtwifi-cfg", "luci-app-mtwifi-cfg", "luci-app-eqos-mtk", "luci-app-turboacc-mtk", "wifi-dats", "wifi-scripts", "iwinfo", "datconf-lua", "lua-cjson", "wireless-tools"],
+      "forbidden_image_packages": ["luci-app-mesh", "kmod-mac80211", "wpad-openssl", "dawn", "mtwifi-cfg-ucode", "kmod-mt_wifi", "kmod-conninfra"],
+      "forbidden": ["PACKAGE_luci-app-mesh", "PACKAGE_kmod-mac80211", "PACKAGE_wpad-openssl", "PACKAGE_dawn", "PACKAGE_mtwifi-cfg-ucode", "PACKAGE_kmod-mt_wifi", "PACKAGE_kmod-conninfra", "PACKAGE_wifi-profile", "PACKAGE_luci-app-mtk"]
+    },
     "xiaomi-be6500": {
       "display_name": "Xiaomi BE6500",
       "source": "viking",

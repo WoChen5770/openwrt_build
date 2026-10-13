@@ -1,9 +1,9 @@
 {
   "luci-theme-shadcn": {"repository": "https://github.com/eamonxg/luci-theme-shadcn.git", "branch": "main", "profiles": ["all"], "mode": "whole"},
   "viking": {"repository": "https://github.com/VIKINGYFY/packages.git", "branch": "main", "profiles": ["all"], "mode": "whole"},
-  "passwall": {"repository": "https://github.com/Openwrt-Passwall/openwrt-passwall.git", "branch": "main", "profiles": ["s20p-mt76", "s20p-mtk", "x86-64"], "mode": "nested", "directories": ["luci-app-passwall"]},
-  "daed": {"repository": "https://github.com/kenzok8/small.git", "branch": "master", "profiles": ["s20p-mt76", "s20p-mtk", "x86-64"], "mode": "nested", "directories": ["dae", "daed", "luci-app-daede", "v2ray-geodata"]},
-  "easytier": {"repository": "https://github.com/EasyTier/luci-app-easytier.git", "branch": "main", "profiles": ["s20p-mt76", "s20p-mtk", "x86-64"], "mode": "whole"},
-  "mesh": {"repository": "https://github.com/xxosdev/luci-app-mesh.git", "branch": "main", "profiles": ["xiaomi-be6500", "tenda-be12-pro", "s20p-mt76"], "mode": "mesh"},
-  "honk": {"repository": "https://github.com/189160/luci-app-honk.git", "commit": "5643dc570baf158b65d0bf7342afd6e15ab305fc", "profiles": ["s20p-mt76", "s20p-mtk", "x86-64"], "mode": "honk"}
+  "passwall": {"repository": "https://github.com/Openwrt-Passwall/openwrt-passwall.git", "branch": "main", "profiles": ["s20p-mt76", "s20p-mtk", "x86-64", "7dr7299-mt76", "7dr7299-mtk"], "mode": "nested", "directories": ["luci-app-passwall"]},
+  "daed": {"repository": "https://github.com/kenzok8/small.git", "branch": "master", "profiles": ["s20p-mt76", "s20p-mtk", "x86-64", "7dr7299-mt76", "7dr7299-mtk"], "mode": "nested", "directories": ["dae", "daed", "luci-app-daede", "v2ray-geodata"]},
+  "easytier": {"repository": "https://github.com/EasyTier/luci-app-easytier.git", "branch": "main", "profiles": ["s20p-mt76", "s20p-mtk", "x86-64", "7dr7299-mt76", "7dr7299-mtk"], "mode": "whole"},
+  "mesh": {"repository": "https://github.com/xxosdev/luci-app-mesh.git", "branch": "main", "profiles": ["xiaomi-be6500", "tenda-be12-pro", "s20p-mt76", "7dr7299-mt76"], "mode": "mesh"},
+  "honk": {"repository": "https://github.com/189160/luci-app-honk.git", "commit": "5643dc570baf158b65d0bf7342afd6e15ab305fc", "profiles": ["s20p-mt76", "s20p-mtk", "x86-64", "7dr7299-mt76", "7dr7299-mtk"], "mode": "honk"}
 }

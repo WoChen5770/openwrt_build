@@ -1,0 +1,19 @@
+# VIKINGYFY/immortalwrt owrt; Linux 6.18 / MT76.
+CONFIG_TARGET_mediatek=y
+CONFIG_TARGET_mediatek_filogic=y
+CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_tplink_tl-7dr7299-v1=y
+CONFIG_PACKAGE_kmod-mt7992-firmware=y
+CONFIG_PACKAGE_mt7988-wo-firmware=y
+CONFIG_PACKAGE_kmod-dsa-rtl837x=y
+CONFIG_PACKAGE_kmod-sfp=y
+CONFIG_PACKAGE_luci-app-mesh=y
+CONFIG_PACKAGE_kmod-mac80211=y
+CONFIG_PACKAGE_MAC80211_MESH=y
+CONFIG_PACKAGE_wpad-openssl=y
+CONFIG_PACKAGE_wpad-mesh-openssl=n
+CONFIG_PACKAGE_kmod-batman-adv=y
+CONFIG_BATMAN_ADV_BLA=y
+CONFIG_PACKAGE_batctl-default=y
+CONFIG_PACKAGE_luci-proto-batman-adv=y
+CONFIG_PACKAGE_dawn=y
+CONFIG_PACKAGE_umdns=y

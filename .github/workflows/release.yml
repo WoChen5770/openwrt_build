@@ -11,7 +11,7 @@ on:
         description: 补发机型（all 仅处理已有成功产物）
         type: choice
         default: all
-        options: [all, xiaomi-be6500, tenda-be12-pro, s20p-mt76, s20p-mtk, x86-64]
+        options: [all, xiaomi-be6500, tenda-be12-pro, s20p-mt76, s20p-mtk, x86-64, 7dr7299-mt76, 7dr7299-mtk]
   workflow_run:
     workflows: [Build firmware]
     types: [completed]
