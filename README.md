@@ -43,13 +43,13 @@
 | 固件发布 | 构建成功后默认发布 Release |
 | 版本标识 | LuCI 固件版本显示仓库所有者、北京时间（编译开始）；镜像文件名带机型、同一时间和运行编号 |
 | 升级页面 | 恢复出厂 / 不保留配置升级后重连默认管理 IP；保留配置升级仍沿用当前地址 |
-| 自动清理 | 每日北京时间 **02:30**；每机型保留至少 4 个 Release，每类缓存保留至少 2 代 |
+| 自动清理 | 每日北京时间 **02:30**；每机型只保留最新 1 个 Release，每类缓存保留至少 2 代 |
 
 Release 只提供固件镜像、带机型和日期的完整配置 `Config-*.txt`、包清单 `*.manifest`、`build-info.json` 和 `sha256sums`。x86 的 BIOS / UEFI / 虚拟磁盘等有效镜像格式继续保留。
 
-`profiles.json`、上游 `*.buildinfo`、`config.seed` / `config.diff` 转到 Actions 的 logs 附件；重复说明 `release-notes.md` 只用于生成 Release 正文，不再单独上传。不再生成 `packages.tar.gz`（避免把固件下载页当作软件包源）。失败日志与固件附件保留 14 天，发布失败仍可通过 [Release recovery](https://github.com/WoChen5770/openwrt_build/actions/workflows/release.yml) 补发，无需重新编译。
+`profiles.json`、上游 `*.buildinfo`、`config.seed` / `config.diff` 转到 Actions 的 logs 附件；重复说明 `release-notes.md` 只用于生成 Release 正文，不再单独上传。不再生成 `packages.tar.gz`（避免把固件下载页当作软件包源）。失败日志与固件附件保留 1 天，发布失败仍可通过 [Release recovery](https://github.com/WoChen5770/openwrt_build/actions/workflows/release.yml) 补发，无需重新编译。
 
-清理仅针对本项目格式且带构建指纹的正式 Release 及识别出的编译缓存，未知附件、手工 Release、草稿、预发布不处理。14 天内的 Release 受到补发保护；最近一天创建或使用的缓存不删。有构建 / 补发任务未完成时跳过。旧 Release 清理会一并删除其对应标签，固件无法从该 Release 恢复，请自行备份需要长期留存的版本。手动运行清理默认是预览模式。推送改动本身不会立即删除现有 Release。
+清理仅针对本项目格式且带构建指纹的正式 Release 及识别出的编译缓存，未知附件、手工 Release、草稿、预发布不处理。1 天内的 Release 受到补发保护；最近一天创建或使用的缓存不删。有构建 / 补发任务未完成时跳过。每机型仅保留最新 1 个 Release，旧版本会一并删除其对应标签，固件无法从该 Release 恢复，请自行备份需要长期留存的版本。手动运行清理默认是预览模式。推送改动本身不会立即删除现有 Release。
 
 ## 自定义
 
@@ -84,7 +84,7 @@ CONFIG_PACKAGE_samba4=y
 
 PRIVATE 文件必须提交到默认分支，GitHub Actions 才能读取；“PRIVATE”只是沿用旧项目的命名，**不是秘密存储**，配置与构建记录会公开，切勿放入 Token、私钥或私密密码。钩子为可信代码，不执行临时输入；可用环境变量 `GITHUB_WORKSPACE`、`WRT_CONFIG`（旧机型名）、`WRT_TARGET`、`WRT_SUBTARGET`、`WRT_IP`、`WRT_MARK`、`WRT_DATE`、`WRT_BRANCH`、`WRT_INFO`。这是独立 Bash 进程，不提供旧 `Packages.sh` 的内部函数。
 
-清理参数在 `build-settings.json`：`releases_keep_per_profile`、`release_recovery_days`（不得小于附件保留期）、`cache_keep_generations`、`cache_min_age_days`。本地可执行 `GH_TOKEN=… GITHUB_REPOSITORY=owner/repo python3 scripts/cleanup.py` 预览；只有添加 `--apply` 才删除。
+清理参数在 `build-settings.json`：`releases_keep_per_profile`（每机型保留的 Release 数）、`release_recovery_days`（补发保护期，不得小于附件保留期）、`cache_keep_generations`、`cache_min_age_days`。本地可执行 `GH_TOKEN=… GITHUB_REPOSITORY=owner/repo python3 scripts/cleanup.py` 预览；只有添加 `--apply` 才删除。
 
 </details>
 

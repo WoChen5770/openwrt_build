@@ -1,9 +1,9 @@
 {
   "scheduled_builds": true,
   "max_parallel": 5,
-  "artifact_retention_days": 14,
-  "releases_keep_per_profile": 4,
-  "release_recovery_days": 14,
+  "artifact_retention_days": 1,
+  "releases_keep_per_profile": 1,
+  "release_recovery_days": 1,
   "cache_keep_generations": 2,
   "cache_min_age_days": 1
 }
