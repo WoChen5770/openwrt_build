@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Publish verified build artifacts, including recovery without recompilation."""
+"""Select and publish verified firmware artifacts from the build workflow."""
 import argparse
 import json
 import os
@@ -69,7 +69,6 @@ def plan():
     repository, _, run = context()
     profiles = read_toml(ROOT / 'Config/profiles.toml')['profiles']
     selected = os.environ.get('PROFILE', 'all')
-    automatic = os.environ.get('AUTO_RECOVER') == 'true'
     if selected != 'all' and selected not in profiles:
         raise ValueError('Unknown profile')
     base = 'repos/' + repository + '/actions/runs/' + str(run['id'])
@@ -77,17 +76,13 @@ def plan():
     pages = gh_json(base + '/artifacts?per_page=100', True)
     available = [a for page in pages for a in page['artifacts'] if not a['expired']]
     matrix = {'include': []}
+    has_successful_build = False
     for name in profiles:
         compile_job = jobs.get((name, 'compile'))
         if selected not in ('all', name) or not compile_job or compile_job['conclusion'] != 'success':
             continue
+        has_successful_build = True
         attempt = str(compile_job['run_attempt'])
-        publisher = jobs.get((name, 'publish'))
-        # Never turn publish=false, a skipped job, or user cancellation into an
-        # automatic release. Only failed or timed-out publishers are recovered.
-        if automatic and (not publisher or publisher['conclusion'] not in ('failure', 'timed_out')
-                          or int(publisher['run_attempt']) < int(attempt)):
-            continue
         candidates = [artifact for artifact in available
                       if artifact['name'] == 'firmware-' + name + '-' + attempt]
         if not candidates:
@@ -95,7 +90,7 @@ def plan():
         artifact = max(candidates, key=lambda item: int(item['id']))
         matrix['include'].append(dict(profile=name, source_run_id=str(run['id']), source_run_attempt=attempt,
                                       artifact_id=str(artifact['id'])))
-    if not matrix['include'] and not automatic:
+    if has_successful_build and not matrix['include']:
         raise ValueError('No successful, unexpired firmware artifacts for this selection')
     with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
         output.write('matrix=' + json.dumps(matrix) + '\n')
@@ -116,7 +111,7 @@ def validate_info(info, run, profile, attempt=None):
 def release_assets(directory, info):
     names = info.get('release_assets')
     if names is None:
-        # Older successful artifacts remain recoverable after this migration.
+        # Keep legacy artifact layouts valid when rerunning older producer jobs.
         return sorted(p for p in directory.iterdir() if p.is_file())
     if (not isinstance(names, list) or not all(isinstance(name, str) for name in names)
             or len(names) != len(set(names))

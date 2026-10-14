@@ -67,22 +67,231 @@ jobs:
           include-hidden-files: true
           retention-days: 14
           if-no-files-found: error
-  build:
-    name: ${{ matrix.profile }}
+  compile:
+    name: ${{ matrix.profile }} / compile
     needs: plan
     if: needs.plan.outputs.has_builds == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    permissions:
+      actions: read
+      contents: read
+    strategy:
+      fail-fast: false
+      max-parallel: ${{ fromJSON(needs.plan.outputs.max_parallel) }}
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    concurrency:
+      group: firmware-${{ matrix.profile }}
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: bash
+    env:
+      SOURCE_DIR: ${{ github.workspace }}/openwrt
+      CCACHE_MAXSIZE: 1G
+      CCACHE_COMPILERCHECK: content
+      # PROFILE is an upstream Make variable; do not export our CI id under it.
+      FIRMWARE_PROFILE: ${{ matrix.profile }}
+      SOURCE_COMMIT: ${{ matrix.source_commit }}
+      FINGERPRINT: ${{ matrix.fingerprint }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Set ccache location
+        # Both upstream rules.mk files use TOPDIR/.ccache by default.
+        run: echo "CCACHE_DIR=$SOURCE_DIR/.ccache" >> "$GITHUB_ENV"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          artifact-ids: ${{ needs.plan.outputs.plan_artifact_id }}
+          merge-multiple: true
+          path: .state/
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+      - name: Install build dependencies
+        run: bash Scripts/install-dependencies.sh
+      - name: Checkout locked source
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          from Scripts.build import checkout, read_json
+          lock = read_json(Path('.state') / (os.environ['FIRMWARE_PROFILE'] + '.json'))
+          assert lock['source']['commit'] == os.environ['SOURCE_COMMIT']
+          assert lock['fingerprint'] == os.environ['FINGERPRINT']
+          checkout(lock['source']['repository'], lock['source']['commit'], Path(os.environ['SOURCE_DIR']))
+          PY
+          df -h .
+      - name: Restore compiler cache
+        id: build-cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ccache-v2-${{ runner.os }}-ubuntu24-${{ matrix.ccache_group }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: ccache-v2-${{ runner.os }}-ubuntu24-${{ matrix.ccache_group }}-
+      - name: Configure compiler cache
+        run: |
+          mkdir -p "$CCACHE_DIR"
+          ccache --max-size="$CCACHE_MAXSIZE"
+          ccache --zero-stats
+      - name: Integrate plugins and verify defconfig
+        run: |
+          set -euo pipefail
+          mkdir -p logs
+          python3 Scripts/build.py prepare --source "$SOURCE_DIR" --lock ".state/$FIRMWARE_PROFILE.json" 2>&1 | tee logs/prepare.log
+      - name: Identify installed caches from expanded configuration
+        id: cache-plan
+        run: python3 Scripts/build.py cache-plan --source "$SOURCE_DIR" --lock ".state/$FIRMWARE_PROFILE.json" --github-output "$GITHUB_OUTPUT"
+      - name: Restore host and toolchain cache
+        id: toolchain-cache
+        if: steps.cache-plan.outputs.enabled == 'true'
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ${{ env.SOURCE_DIR }}/staging_dir/host
+            ${{ env.SOURCE_DIR }}/staging_dir/toolchain-*
+          key: ${{ steps.cache-plan.outputs.toolchain_key }}
+      - name: Restore package host tools cache
+        id: hostpkg-cache
+        if: steps.cache-plan.outputs.enabled == 'true'
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ env.SOURCE_DIR }}/staging_dir/hostpkg
+          key: ${{ steps.cache-plan.outputs.hostpkg_key }}
+      - name: Refresh restored installed tools without reusing target outputs
+        if: steps.toolchain-cache.outputs.cache-hit == 'true' || steps.hostpkg-cache.outputs.cache-hit == 'true'
+        run: python3 Scripts/build.py cache-refresh --source "$SOURCE_DIR"
+      - name: Compile with serial diagnostic retry
+        id: compile
+        run: bash Scripts/compile.sh "$SOURCE_DIR" "$GITHUB_WORKSPACE/logs"
+      - name: Collect firmware and provenance
+        id: collect
+        run: |
+          set -euo pipefail
+          python3 Scripts/build.py collect --source "$SOURCE_DIR" --lock ".state/$FIRMWARE_PROFILE.json" --output-dir out 2>&1 | tee logs/collect.log
+      - name: Preserve images for failed collection diagnostics
+        if: failure() && steps.compile.outcome == 'success' && steps.collect.outcome == 'failure'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: diagnostic-images-${{ matrix.profile }}-${{ github.run_attempt }}
+          path: |
+            ${{ env.SOURCE_DIR }}/bin/targets/**/*.bin
+            ${{ env.SOURCE_DIR }}/bin/targets/**/*.itb
+            ${{ env.SOURCE_DIR }}/bin/targets/**/*.manifest
+            ${{ env.SOURCE_DIR }}/bin/targets/**/*.json
+            ${{ env.SOURCE_DIR }}/bin/targets/**/*.buildinfo
+          retention-days: ${{ needs.plan.outputs.retention_days }}
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        id: firmware-artifact
+        with:
+          name: firmware-${{ matrix.profile }}-${{ github.run_attempt }}
+          path: out/
+          retention-days: ${{ needs.plan.outputs.retention_days }}
+          if-no-files-found: error
+      - name: Save successful compiler cache
+        if: matrix.ccache_write
+        continue-on-error: true
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ${{ steps.build-cache.outputs.cache-primary-key }}
+      - name: Save successful host and toolchain cache
+        if: steps.cache-plan.outputs.enabled == 'true' && steps.toolchain-cache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ${{ env.SOURCE_DIR }}/staging_dir/host
+            ${{ env.SOURCE_DIR }}/staging_dir/toolchain-*
+          key: ${{ steps.cache-plan.outputs.toolchain_key }}
+      - name: Save successful package host tools cache
+        if: steps.cache-plan.outputs.enabled == 'true' && steps.hostpkg-cache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ env.SOURCE_DIR }}/staging_dir/hostpkg
+          key: ${{ steps.cache-plan.outputs.hostpkg_key }}
+      - name: Save configuration diagnostics
+        if: always()
+        run: |
+          mkdir -p logs
+          if [[ -f "$SOURCE_DIR/.config" ]]; then cp "$SOURCE_DIR/.config" logs/config.full; fi
+          if [[ -d "$SOURCE_DIR/logs" ]]; then cp -R "$SOURCE_DIR/logs" logs/upstream; fi
+          if [[ -d "$SOURCE_DIR/.ccache" ]]; then
+            CCACHE_DIR="$SOURCE_DIR/.ccache" ccache --show-stats 2>&1 | tee logs/ccache.log
+          fi
+          du -sh "$SOURCE_DIR/.ccache" "$SOURCE_DIR/staging_dir/host" "$SOURCE_DIR/staging_dir/hostpkg" "$SOURCE_DIR"/staging_dir/toolchain-* > logs/cache-sizes.log 2>/dev/null || true
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: logs-${{ matrix.profile }}-${{ github.run_attempt }}
+          path: |
+            logs/
+            .state/${{ matrix.profile }}.json
+          include-hidden-files: true
+          retention-days: ${{ needs.plan.outputs.retention_days }}
+  publish-plan:
+    name: Select successful firmware
+    needs: [plan, compile]
+    # A failed model must not skip publication for the other successful models.
+    if: >-
+      ${{ !cancelled() && needs.plan.result == 'success' &&
+          needs.plan.outputs.has_builds == 'true' &&
+          (github.event_name == 'schedule' || inputs.publish == true) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      has_releases: ${{ steps.plan.outputs.has_releases }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Select successful build artifacts
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ github.run_id }}
+          PROFILE: ${{ inputs.profile || 'all' }}
+        run: python3 Scripts/release.py plan
+  publish:
+    name: ${{ matrix.profile }} / publish
+    needs: [plan, publish-plan]
+    if: >-
+      ${{ !cancelled() && needs.publish-plan.result == 'success' &&
+          needs.publish-plan.outputs.has_releases == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
     permissions:
       actions: read
       contents: write
     strategy:
       fail-fast: false
       max-parallel: ${{ fromJSON(needs.plan.outputs.max_parallel) }}
-      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
-    uses: ./.github/workflows/build-core.yml
-    with:
-      profile: ${{ matrix.profile }}
-      source_commit: ${{ matrix.source_commit }}
-      fingerprint: ${{ matrix.fingerprint }}
-      plan_artifact_id: ${{ needs.plan.outputs.plan_artifact_id }}
-      retention_days: ${{ fromJSON(needs.plan.outputs.retention_days) }}
-      publish: ${{ github.event_name == 'schedule' || inputs.publish == true }}
+      matrix: ${{ fromJSON(needs.publish-plan.outputs.matrix) }}
+    concurrency:
+      group: release-${{ matrix.source_run_id }}-${{ matrix.source_run_attempt }}-${{ matrix.profile }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          artifact-ids: ${{ matrix.artifact_id }}
+          merge-multiple: true
+          path: firmware/
+          github-token: ${{ github.token }}
+          run-id: ${{ matrix.source_run_id }}
+      - name: Verify provenance and publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PROFILE: ${{ matrix.profile }}
+          SOURCE_RUN_ID: ${{ matrix.source_run_id }}
+          SOURCE_RUN_ATTEMPT: ${{ matrix.source_run_attempt }}
+        run: python3 Scripts/release.py publish --directory firmware

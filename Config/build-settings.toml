@@ -16,7 +16,7 @@ releases_keep_per_profile = 1
 release_recovery_days = 0
 
 # 缓存保留代数
-cache_keep_generations = 2
+cache_keep_generations = 1
 
-# 缓存保护天数
-cache_min_age_days = 1
+# 缓存保护天数，0 表示成功替换后立即清理旧代
+cache_min_age_days = 0

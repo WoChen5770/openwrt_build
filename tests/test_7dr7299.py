@@ -38,11 +38,10 @@ class SevenDrProfileTests(unittest.TestCase):
             values = build.config_for(profile)
             devices = [key for key, value in values.items() if key.startswith("TARGET_DEVICE_") and value == "y"]
             self.assertEqual(devices, ["TARGET_DEVICE_mediatek_" + subtarget + "_DEVICE_tplink_tl-7dr7299-v1"])
-            for workflow in ("build.yml", "release.yml"):
-                self.assertIn(name, (build.ROOT / ".github/workflows" / workflow).read_text())
+            self.assertIn(name, (build.ROOT / ".github/workflows/build.yml").read_text())
             build.defaults(name)
             build.validate_config(name, profile, serialize(self.valid_config(name)))
-        self.assertIn("/bin/targets/**/*.itb", (build.ROOT / ".github/workflows/build-core.yml").read_text())
+        self.assertIn("/bin/targets/**/*.itb", (build.ROOT / ".github/workflows/build.yml").read_text())
         self.assertEqual(self.specs["profiles"][VARIANTS[0]]["source"], "viking")
 
     def test_hardware_seed_config_and_manifest_guards(self):

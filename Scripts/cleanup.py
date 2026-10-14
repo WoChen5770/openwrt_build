@@ -9,9 +9,9 @@ import re
 import subprocess
 
 if __package__:
-    from .build import ROOT, read_toml
+    from .build import ROOT, ccache_group, read_toml
 else:
-    from build import ROOT, read_toml
+    from build import ROOT, ccache_group, read_toml
 
 
 def timestamp(value):
@@ -20,11 +20,12 @@ def timestamp(value):
 
 def settings():
     values = read_toml(ROOT / 'Config/build-settings.toml')
-    for key in ('releases_keep_per_profile', 'cache_keep_generations', 'cache_min_age_days'):
+    for key in ('releases_keep_per_profile', 'cache_keep_generations'):
         if type(values[key]) is not int or values[key] < 1:
             raise ValueError('Retention must be a positive integer: ' + key)
-    if type(values['release_recovery_days']) is not int or values['release_recovery_days'] < 0:
-        raise ValueError('Retention must be a non-negative integer: release_recovery_days')
+    for key in ('release_recovery_days', 'cache_min_age_days'):
+        if type(values[key]) is not int or values[key] < 0:
+            raise ValueError('Retention must be a non-negative integer: ' + key)
     return values
 
 
@@ -48,11 +49,23 @@ def release_candidates(releases, profiles, values, now):
 
 def cache_candidates(caches, profiles, values, now):
     groups = defaultdict(list)
+    compiler_groups = {ccache_group(name, profiles[name] if isinstance(profiles, dict) else {})
+                       for name in profiles}
     for cache in caches:
+        if cache.get('size_in_bytes', 1) <= 0:
+            continue
+        shared = next((group for group in compiler_groups
+                       if re.fullmatch(r'ccache-v2-Linux-ubuntu24-' + re.escape(group) + r'-[0-9]+-[0-9]+',
+                                       cache['key'])), None)
+        if shared:
+            groups[(shared, 'ccache-v2', cache['ref'])].append(cache)
+            continue
         for profile in sorted(profiles, key=len, reverse=True):
             patterns = (
                 ('firmware', r'firmware-Linux-' + re.escape(profile) + r'-[0-9a-f]{64}-[0-9]+-[0-9]+'),
                 ('toolchain', r'toolchain-v1-Linux-ubuntu24-' + re.escape(profile) + r'-[0-9a-f]{24}-[0-9a-f]{40}-[0-9]+-[0-9]+'),
+                ('toolchain-v2', r'toolchain-v2-Linux-ubuntu24-' + re.escape(profile) + r'-[0-9a-f]{24}'),
+                ('hostpkg-v2', r'hostpkg-v2-Linux-ubuntu24-' + re.escape(profile) + r'-[0-9a-f]{24}'),
             )
             kind = next((kind for kind, pattern in patterns if re.fullmatch(pattern, cache['key'])), None)
             if kind:
@@ -60,10 +73,13 @@ def cache_candidates(caches, profiles, values, now):
                 break
     cutoff = now - timedelta(days=values['cache_min_age_days'])
     result = []
-    for items in groups.values():
-        items.sort(key=lambda c: (timestamp(c['created_at']), c['id']), reverse=True)
+    for (_, kind, _), items in groups.items():
+        # Stable installed caches can be reused after switching back to an older configuration.
+        field = 'last_accessed_at' if kind in ('toolchain-v2', 'hostpkg-v2') else 'created_at'
+        items.sort(key=lambda c: (timestamp(c[field]), timestamp(c['created_at']), c['id']), reverse=True)
         result.extend(c for c in items[values['cache_keep_generations']:]
-                      if timestamp(c['created_at']) < cutoff and timestamp(c['last_accessed_at']) < cutoff)
+                      if values['cache_min_age_days'] == 0
+                      or (timestamp(c['created_at']) < cutoff and timestamp(c['last_accessed_at']) < cutoff))
     return result
 
 
@@ -79,7 +95,7 @@ def active_builds(base):
     for status in ('in_progress', 'queued', 'waiting', 'pending', 'requested'):
         for page in api(base + '/actions/runs?status=' + status + '&per_page=100', True):
             active.extend(r for r in page['workflow_runs']
-                          if r['path'] in ('.github/workflows/build.yml', '.github/workflows/release.yml'))
+                          if r['path'] == '.github/workflows/build.yml')
     return active
 
 
@@ -91,9 +107,9 @@ def main():
     base = 'repos/' + repository
     values = settings()
     profiles = read_toml(ROOT / 'Config/profiles.toml')['profiles']
-    # Do not disrupt a compilation, publication or publication recovery.
+    # The unified build workflow includes both compilation and publication.
     if active_builds(base):
-        print('Build/recovery active: cleanup skipped')
+        print('Build/publication active: cleanup skipped')
         return
     now = datetime.now(timezone.utc)
     releases = [r for page in api(base + '/releases?per_page=100', True) for r in page]

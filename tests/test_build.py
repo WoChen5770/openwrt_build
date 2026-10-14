@@ -108,11 +108,34 @@ class RepositoryLayoutTests(unittest.TestCase):
             self.assertIn('b' * 64, recipe)
             self.assertNotIn('@XRAY_', recipe)
 
-    def test_recovery_loads_profile_registry_from_config(self):
+    def test_publication_plan_loads_profile_registry_from_config(self):
         with patch.object(release, 'context', return_value=('owner/repo', {}, {'id': 123})), \
                 patch.dict(release.os.environ, {'PROFILE': 'not-a-profile'}):
             with self.assertRaisesRegex(ValueError, 'Unknown profile'):
                 release.plan()
+
+    def test_build_cache_excludes_downloads_and_preserves_compilation_caches(self):
+        workflow = (build.ROOT / '.github/workflows/build.yml').read_text()
+        for action, name in (('restore', 'Restore compiler cache'),
+                             ('save', 'Save successful compiler cache')):
+            with self.subTest(action=action):
+                header = '      - name: ' + name + '\n'
+                self.assertIn(header, workflow)
+                step = workflow.split(header, 1)[1].split('      - ', 1)[0]
+                self.assertIn('uses: actions/cache/' + action + '@', step)
+                self.assertIn('          path: ${{ env.CCACHE_DIR }}\n', step)
+        self.assertNotIn('${{ env.SOURCE_DIR }}/dl', workflow)
+        self.assertNotIn('${{ env.SOURCE_DIR }}/build_dir', workflow)
+        self.assertNotIn('${{ env.SOURCE_DIR }}/staging_dir/target', workflow)
+        self.assertNotIn('${{ env.SOURCE_DIR }}/staging_dir/host*', workflow)
+        self.assertEqual(workflow.count('${{ env.SOURCE_DIR }}/staging_dir/host\n'), 2)
+        self.assertEqual(workflow.count('${{ env.SOURCE_DIR }}/staging_dir/hostpkg\n'), 2)
+        self.assertEqual(workflow.count('${{ env.SOURCE_DIR }}/staging_dir/toolchain-*'), 2)
+        self.assertIn('CCACHE_MAXSIZE: 1G', workflow)
+        self.assertIn('key: ccache-v2-${{ runner.os }}-ubuntu24-${{ matrix.ccache_group }}-', workflow)
+        self.assertIn('key: ${{ steps.build-cache.outputs.cache-primary-key }}', workflow)
+        compile_script = (build.ROOT / 'Scripts/compile.sh').read_text()
+        self.assertIn('make download -j"$jobs" 2>&1 | tee "$log_dir/download.log"', compile_script)
 
 
 class CustomizationTests(unittest.TestCase):
@@ -193,26 +216,6 @@ class CustomizationTests(unittest.TestCase):
             self.assertEqual(before, target.stat().st_mtime_ns)
             self.assertTrue(host.is_file())
             self.assertEqual((tree / 'tmp/.build').read_text(), '1\n')
-
-    def test_cache_compatibility_changes_with_configuration(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            lock = dict(source=dict(repository='https://github.com/owner/repo', branch='main', feeds=[], commit='a' * 40),
-                        profile_id='x86-64', config={'TARGET_x86': 'y'}, packages={}, ci_hash='b' * 64)
-            build.write_json(root / 'lock.json', lock)
-            def cache_key():
-                output = root / 'output.txt'
-                output.write_text('')
-                build.cache_plan(SimpleNamespace(lock=root / 'lock.json', source=root, github_output=output))
-                return output.read_text().splitlines()[0]
-            with patch.object(build, 'run', return_value='c' * 40), patch.dict(build.os.environ, {'GITHUB_RUN_ID': '123', 'GITHUB_RUN_ATTEMPT': '1'}):
-                original = cache_key()
-                lock['source']['commit'] = 'd' * 40
-                build.write_json(root / 'lock.json', lock)
-                self.assertEqual(original, cache_key())
-                lock['config']['TOOLCHAINOPTS'] = 'y'
-                build.write_json(root / 'lock.json', lock)
-                self.assertNotEqual(original, cache_key())
 
     def test_prepare_runs_private_hook_before_pruning_and_rejects_dropped_options(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -304,7 +307,7 @@ class PublicationTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'exactly'):
                 release.release_assets(root, {'release_assets': good + ['firmware.bin']})
 
-    def test_old_artifact_recovery_is_preserved(self):
+    def test_legacy_artifact_layout_is_preserved(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             fixture(root, 'config.full', 'config')
@@ -347,13 +350,13 @@ class CleanupTests(unittest.TestCase):
         values = dict(self.values, release_recovery_days=0)
         self.assertEqual(cleanup.release_candidates(releases, self.profiles, values, self.now), [])
 
-    def test_retention_settings_allow_zero_only_for_release_grace(self):
-        values = dict(self.values, release_recovery_days=0)
+    def test_retention_settings_allow_zero_only_for_grace_periods(self):
+        values = dict(self.values, release_recovery_days=0, cache_min_age_days=0)
         with patch.object(cleanup, 'read_toml', return_value=values):
             self.assertEqual(cleanup.settings(), values)
         for key in self.values:
             invalid = (-1, True, 1.5, '1')
-            if key != 'release_recovery_days':
+            if key not in ('release_recovery_days', 'cache_min_age_days'):
                 invalid += (0,)
             for value in invalid:
                 with self.subTest(key=key, value=value), \
@@ -361,9 +364,9 @@ class CleanupTests(unittest.TestCase):
                         self.assertRaisesRegex(ValueError, key):
                     cleanup.settings()
 
-    def test_cleanup_follows_build_and_recovery_completion_on_trusted_branch(self):
+    def test_cleanup_follows_unified_build_completion_on_trusted_branch(self):
         workflow = (build.ROOT / '.github/workflows/cleanup.yml').read_text()
-        self.assertIn('workflows: [Build firmware, Recover firmware releases]', workflow)
+        self.assertIn('workflows: [Build firmware]', workflow)
         self.assertIn('types: [completed]', workflow)
         self.assertNotIn('workflow_run.conclusion', workflow)
         self.assertIn('github.event.workflow_run.head_repository.full_name == github.repository', workflow)
@@ -372,11 +375,10 @@ class CleanupTests(unittest.TestCase):
         self.assertIn('default: true', workflow)
         self.assertIn('group: firmware-cleanup', workflow)
         self.assertIn('cancel-in-progress: false', workflow)
-        for name in ('build.yml', 'release.yml'):
-            source = (build.ROOT / '.github/workflows' / name).read_text().splitlines()[0]
-            self.assertIn(source.removeprefix('name: '), workflow)
+        source = (build.ROOT / '.github/workflows/build.yml').read_text().splitlines()[0]
+        self.assertIn(source.removeprefix('name: '), workflow)
 
-    def test_release_retention_is_per_model_and_protects_recent_recovery(self):
+    def test_release_retention_is_per_model_and_protects_recent_publication(self):
         releases = [self.make_release(p, n) for p in self.profiles for n in range(1, 7)]
         candidates = cleanup.release_candidates(releases, self.profiles, self.values, self.now)
         self.assertEqual({r['tag_name'] for r in candidates}, {f'{p}-r{n}-1' for p in self.profiles for n in range(2, 7)})
@@ -446,14 +448,14 @@ class CleanupTests(unittest.TestCase):
             cleanup.main()
             api.assert_not_called()
 
-    def test_queued_recovery_also_defers_cleanup_until_its_completion_event(self):
+    def test_queued_build_also_defers_cleanup_until_its_completion_event(self):
         build_run = {'path': '.github/workflows/build.yml', 'id': 1}
-        recovery_run = {'path': '.github/workflows/release.yml', 'id': 2}
+        queued_run = {'path': '.github/workflows/build.yml', 'id': 2}
         other_run = {'path': '.github/workflows/check.yml', 'id': 3}
         pages = [[{'workflow_runs': [build_run, other_run]}],
-                 [{'workflow_runs': [recovery_run]}]] + [[{'workflow_runs': []}]] * 3
+                 [{'workflow_runs': [queued_run]}]] + [[{'workflow_runs': []}]] * 3
         with patch.object(cleanup, 'api', side_effect=pages) as api:
-            self.assertEqual(cleanup.active_builds('repos/owner/repo'), [build_run, recovery_run])
+            self.assertEqual(cleanup.active_builds('repos/owner/repo'), [build_run, queued_run])
             api.assert_any_call('repos/owner/repo/actions/runs?status=queued&per_page=100', True)
 
 

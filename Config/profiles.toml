@@ -23,6 +23,8 @@ image_match = "tplink_tl-7dr7299-v1"
 variant = "mt76"
 legacy_name = "TPLINK-7DR7299-MT76"
 hostname = "7DR7299-MT76"
+ccache_group = "viking-filogic"
+ccache_priority = 30
 
 # 完整机型配置
 config = "Config/TPLINK-7DR7299-MT76.txt"
@@ -265,6 +267,8 @@ image_match = "tenda_be12-pro"
 variant = "mt76"
 legacy_name = "TENDA-BE12-PRO"
 hostname = "TENDA-BE12-PRO"
+ccache_group = "viking-filogic"
+ccache_priority = 10
 
 # 完整机型配置
 config = "Config/TENDA-BE12-PRO.txt"
@@ -306,6 +310,8 @@ image_match = "supergateway_s20p"
 variant = "mt76"
 legacy_name = "SUPERGATEWAY-S20P-MT76"
 hostname = "S20P-MT76"
+ccache_group = "viking-filogic"
+ccache_priority = 20
 
 # 完整机型配置
 config = "Config/SUPERGATEWAY-S20P-MT76.txt"

@@ -231,6 +231,32 @@ def config_marker(values):
     return "<!-- build-config:" + digest + " -->"
 
 
+def ccache_group(name, profile):
+    group = profile.get("ccache_group", name)
+    if not isinstance(group, str) or not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", group):
+        raise ValueError("Invalid ccache group: " + name)
+    return group
+
+
+def assign_cache_writers(matrix, profiles):
+    platforms, writers = {}, {}
+    for name, profile in profiles.items():
+        group = ccache_group(name, profile)
+        platform = tuple(profile[key] for key in ("source", "target", "subtarget"))
+        if platforms.setdefault(group, platform) != platform:
+            raise ValueError("A ccache group must use the same source and platform: " + group)
+        priority = profile.get("ccache_priority", 0)
+        if type(priority) is not int or priority < 0:
+            raise ValueError("Invalid ccache writer priority: " + name)
+    for item in matrix:
+        name = item["profile"]
+        item["ccache_group"] = group = ccache_group(name, profiles[name])
+        rank = (profiles[name].get("ccache_priority", 0), name)
+        writers[group] = max(writers.get(group, rank), rank)
+    for item in matrix:
+        item["ccache_write"] = item["profile"] == writers[item["ccache_group"]][1]
+
+
 def plan(args):
     settings = read_toml(ROOT / "Config/build-settings.toml")
     matrix = []
@@ -301,6 +327,7 @@ def plan(args):
                 continue
             write_json(output / (profile_id + ".json"), lock)
             matrix.append(dict(profile=profile_id, source_commit=lock["source"]["commit"], fingerprint=lock["fingerprint"]))
+    assign_cache_writers(matrix, specs["profiles"])
     result = dict(matrix=dict(include=matrix), has_builds=bool(matrix), max_parallel=settings["max_parallel"],
                   retention_days=settings["artifact_retention_days"])
     write_json(output / "matrix.json", result)
@@ -592,21 +619,71 @@ def customize_luci(tree, values, identity):
         path.write_text(content)
 
 
+def cache_source_inputs(tree, paths):
+    # Hash tracked contents, including local patches, but not generated conf/.o files.
+    files = run("git", "ls-files", "--stage", "-z", "--", *paths, cwd=tree).split("\0")
+    digest, symbols = hashlib.sha256(), set()
+    for entry in sorted(filter(None, files)):
+        _, name = entry.split("\t", 1)
+        path = tree / name
+        digest.update(entry.encode() + b"\0")
+        if path.is_symlink():
+            digest.update(os.readlink(path).encode() + b"\0")
+            if not path.resolve().is_relative_to(tree.resolve()):
+                raise ValueError("Cache input symlink escapes source: " + name)
+        if not path.is_file():
+            digest.update(b"missing\0")
+            continue
+        content = path.read_bytes()
+        digest.update(str(path.stat().st_mode & 0o111).encode() + b"\0" + content + b"\0")
+        symbols.update(re.findall(r"CONFIG_([A-Za-z0-9_]+)", content.decode(errors="replace")))
+    if not any(files):
+        raise ValueError("No tracked source files for cache fingerprint")
+    return digest.hexdigest(), symbols
+
+
+def cache_keys(lock, tree, host):
+    values = merge_config([(tree / ".config").read_text()])
+    if not values:
+        raise ValueError("Cache planning requires the expanded build configuration")
+    paths = ["tools", "toolchain", "include", "config", "scripts", "Makefile", "rules.mk",
+             "target/linux/generic", "target/linux/" + lock["profile"]["target"]]
+    source_hash, symbols = cache_source_inputs(tree, paths)
+    # A dynamic CONFIG_PACKAGE_ reference conservatively includes that whole family.
+    selected = {key: value for key, value in values.items()
+                if not key.startswith("PACKAGE_") or key in symbols or "PACKAGE_" in symbols}
+    foundation = dict(source={k: lock["source"][k] for k in ("repository", "branch")},
+                      config=selected, source_hash=source_hash, host=host, directory=str(tree.resolve()))
+    def digest(value):
+        return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()[:24]
+    base = "-v2-Linux-ubuntu24-" + lock["profile_id"] + "-"
+    toolchain_key = "toolchain" + base + digest(foundation)
+    # Package host tools retain their feed, overlay, configuration and recipe guards.
+    scripts = {str(path.relative_to(ROOT)): hashlib.sha256(path.read_bytes()).hexdigest()
+               for path in sorted((ROOT / "Scripts").rglob("*"))
+               if path.is_file() and "__pycache__" not in path.parts and path.suffix != ".pyc"}
+    packages = dict(toolchain_key=toolchain_key, feeds=lock["source"]["feeds"], packages=lock["packages"],
+                    config=values, recipes=run("git", "rev-parse", "HEAD:package", cwd=tree), scripts=scripts)
+    return dict(toolchain_key=toolchain_key, hostpkg_key="hostpkg" + base + digest(packages))
+
+
 def cache_plan(args):
     lock, tree = read_json(args.lock), Path(args.source)
-    # These Git tree IDs change whenever host/toolchain build rules change. Feed
-    # and custom recipe commits also isolate hostpkg builds. Never cache target/.
-    objects = {name: run("git", "rev-parse", "HEAD:" + name, cwd=tree)
-               for name in ("tools", "toolchain", "include", "config", "scripts", "package", "Makefile", "rules.mk")}
-    compatibility = dict(source={k: lock["source"][k] for k in ("repository", "branch", "feeds")},
-                         config=lock["config"], packages=lock["packages"], objects=objects, ci_hash=lock["ci_hash"],
-                         host=dict(image=os.environ.get("ImageVersion", "unknown"),
-                                   compiler=run("gcc", "--version"), linker=run("ld", "--version")))
-    digest = hashlib.sha256(json.dumps(compatibility, sort_keys=True).encode()).hexdigest()[:24]
-    prefix = "toolchain-v1-Linux-ubuntu24-" + lock["profile_id"] + "-" + digest + "-"
-    key = prefix + lock["source"]["commit"] + "-" + os.environ["GITHUB_RUN_ID"] + "-" + os.environ["GITHUB_RUN_ATTEMPT"]
+    # Arbitrary private hooks can alter build inputs outside the tracked recipe set.
+    enabled = not (ROOT / "Scripts/PRIVATE.sh").is_file()
+    keys = dict(toolchain_key="", hostpkg_key="")
+    if enabled:
+        host = dict(image=os.environ.get("ImageVersion", "unknown"), compiler=run("gcc", "--version"),
+                    linker=run("ld", "--version"),
+                    packages=run("dpkg-query", "-W", "-f=${Package}=${Version}\n"),
+                    dependencies=hashlib.sha256((ROOT / "Scripts/install-dependencies.sh").read_bytes()).hexdigest())
+        keys = cache_keys(lock, tree, host)
+    result = dict(**keys, enabled=str(enabled).lower())
     with open(args.github_output, "a") as output:
-        output.write("prefix=" + prefix + "\nkey=" + key + "\n")
+        for key, value in result.items():
+            output.write(key + "=" + value + "\n")
+    write_json(ROOT / "logs/cache-plan.json", result)
+    print(json.dumps(result))
 
 
 def refresh_toolchain_cache(tree):
@@ -620,6 +697,12 @@ def refresh_toolchain_cache(tree):
                         path.touch()
     (tree / "tmp").mkdir(exist_ok=True)
     (tree / "tmp/.build").write_text("1\n")
+
+
+def cache_refresh(args):
+    tree = Path(args.source).resolve()
+    refresh_toolchain_cache(tree)
+    run("make", "clean", cwd=tree)
 
 
 def prepare(args):
@@ -667,9 +750,6 @@ def prepare(args):
                if value in ("y", "m") and actual_values.get(key) not in (value, "y")]
     if missing:
         raise ValueError("Private/temporary options not selected: " + ", ".join(missing))
-    if getattr(args, "toolchain_cache", False):
-        refresh_toolchain_cache(tree)
-        run("make", "clean", cwd=tree)
     print("Configuration verified: " + lock["profile_id"])
 
 
@@ -883,14 +963,15 @@ def main():
         p.add_argument("--lock", required=True)
         if name == "collect":
             p.add_argument("--output-dir", default="out")
-        else:
-            p.add_argument("--toolchain-cache", action="store_true")
     p = sub.add_parser("cache-plan")
     p.add_argument("--source", required=True)
     p.add_argument("--lock", required=True)
     p.add_argument("--github-output", required=True)
+    p = sub.add_parser("cache-refresh")
+    p.add_argument("--source", required=True)
     args = parser.parse_args()
-    {"plan": plan, "prepare": prepare, "collect": collect, "cache-plan": cache_plan}[args.command](args)
+    {"plan": plan, "prepare": prepare, "collect": collect,
+     "cache-plan": cache_plan, "cache-refresh": cache_refresh}[args.command](args)
 
 
 if __name__ == "__main__":

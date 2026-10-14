@@ -2,7 +2,7 @@ name: Clean old releases and caches
 
 on:
   workflow_run:
-    workflows: [Build firmware, Recover firmware releases]
+    workflows: [Build firmware]
     types: [completed]
   schedule:
     - cron: '30 18 * * *'
