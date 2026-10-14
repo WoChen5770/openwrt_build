@@ -20,9 +20,11 @@ def timestamp(value):
 
 def settings():
     values = read_toml(ROOT / 'Config/build-settings.toml')
-    for key in ('releases_keep_per_profile', 'release_recovery_days', 'cache_keep_generations', 'cache_min_age_days'):
+    for key in ('releases_keep_per_profile', 'cache_keep_generations', 'cache_min_age_days'):
         if type(values[key]) is not int or values[key] < 1:
             raise ValueError('Retention must be a positive integer: ' + key)
+    if type(values['release_recovery_days']) is not int or values['release_recovery_days'] < 0:
+        raise ValueError('Retention must be a non-negative integer: release_recovery_days')
     return values
 
 
@@ -40,7 +42,7 @@ def release_candidates(releases, profiles, values, now):
     for items in groups.values():
         items.sort(key=lambda r: (timestamp(r['published_at']), r['id']), reverse=True)
         result.extend(r for r in items[values['releases_keep_per_profile']:]
-                      if timestamp(r['published_at']) < cutoff)
+                      if values['release_recovery_days'] == 0 or timestamp(r['published_at']) < cutoff)
     return result
 
 

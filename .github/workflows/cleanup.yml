@@ -1,6 +1,9 @@
 name: Clean old releases and caches
 
 on:
+  workflow_run:
+    workflows: [Build firmware, Recover firmware releases]
+    types: [completed]
   schedule:
     - cron: '30 18 * * *'
   workflow_dispatch:
@@ -20,6 +23,10 @@ concurrency:
 
 jobs:
   cleanup:
+    if: >-
+      ${{ github.event_name != 'workflow_run' ||
+          (github.event.workflow_run.head_repository.full_name == github.repository &&
+           github.event.workflow_run.head_branch == github.event.repository.default_branch) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -29,7 +36,7 @@ jobs:
       - name: Clean only recognized project releases and caches
         env:
           GH_TOKEN: ${{ github.token }}
-          APPLY: ${{ github.event_name == 'schedule' || inputs.dry_run == false }}
+          APPLY: ${{ github.event_name == 'workflow_run' || github.event_name == 'schedule' || inputs.dry_run == false }}
         run: |
           args=()
           if [[ "$APPLY" == true ]]; then args+=(--apply); fi

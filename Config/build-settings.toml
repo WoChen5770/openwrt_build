@@ -12,8 +12,8 @@ artifact_retention_days = 14
 # 每机型保留版本数
 releases_keep_per_profile = 1
 
-# 补发保护天数
-release_recovery_days = 1
+# 旧版本保护天数，0 表示立即清理
+release_recovery_days = 0
 
 # 缓存保留代数
 cache_keep_generations = 2

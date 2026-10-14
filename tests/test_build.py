@@ -324,13 +324,66 @@ class CleanupTests(unittest.TestCase):
                     published_at=(self.now - timedelta(days=age, hours=number)).isoformat(),
                     body='<!-- build-fingerprint:' + 'a' * 64 + ' -->')
 
+    def test_default_retention_immediately_keeps_one_release_per_profile(self):
+        values = cleanup.settings()
+        self.assertEqual(values['releases_keep_per_profile'], 1)
+        self.assertEqual(values['release_recovery_days'], 0)
+        profiles = build.read_toml(build.ROOT / 'Config/profiles.toml')['profiles']
+        releases = [self.make_release(p, n, age=0) for p in profiles for n in range(1, 4)]
+        candidates = cleanup.release_candidates(releases, profiles, values, self.now)
+        self.assertEqual({r['tag_name'] for r in candidates},
+                         {f'{p}-r{n}-1' for p in profiles for n in (2, 3)})
+
+    def test_immediate_retention_breaks_same_timestamp_ties_by_release_id(self):
+        values = dict(self.values, release_recovery_days=0)
+        releases = [dict(self.make_release(p, n), published_at=self.now.isoformat())
+                    for p in self.profiles for n in (3, 1, 2)]
+        candidates = cleanup.release_candidates(releases, self.profiles, values, self.now)
+        self.assertEqual({r['tag_name'] for r in candidates},
+                         {f'{p}-r{n}-1' for p in self.profiles for n in (1, 2)})
+
+    def test_a_profiles_only_release_is_preserved_without_a_new_publication(self):
+        releases = [self.make_release(p, n) for n, p in enumerate(self.profiles, 1)]
+        values = dict(self.values, release_recovery_days=0)
+        self.assertEqual(cleanup.release_candidates(releases, self.profiles, values, self.now), [])
+
+    def test_retention_settings_allow_zero_only_for_release_grace(self):
+        values = dict(self.values, release_recovery_days=0)
+        with patch.object(cleanup, 'read_toml', return_value=values):
+            self.assertEqual(cleanup.settings(), values)
+        for key in self.values:
+            invalid = (-1, True, 1.5, '1')
+            if key != 'release_recovery_days':
+                invalid += (0,)
+            for value in invalid:
+                with self.subTest(key=key, value=value), \
+                        patch.object(cleanup, 'read_toml', return_value=dict(values, **{key: value})), \
+                        self.assertRaisesRegex(ValueError, key):
+                    cleanup.settings()
+
+    def test_cleanup_follows_build_and_recovery_completion_on_trusted_branch(self):
+        workflow = (build.ROOT / '.github/workflows/cleanup.yml').read_text()
+        self.assertIn('workflows: [Build firmware, Recover firmware releases]', workflow)
+        self.assertIn('types: [completed]', workflow)
+        self.assertNotIn('workflow_run.conclusion', workflow)
+        self.assertIn('github.event.workflow_run.head_repository.full_name == github.repository', workflow)
+        self.assertIn('github.event.workflow_run.head_branch == github.event.repository.default_branch', workflow)
+        self.assertIn("APPLY: ${{ github.event_name == 'workflow_run' || github.event_name == 'schedule' || inputs.dry_run == false }}", workflow)
+        self.assertIn('default: true', workflow)
+        self.assertIn('group: firmware-cleanup', workflow)
+        self.assertIn('cancel-in-progress: false', workflow)
+        for name in ('build.yml', 'release.yml'):
+            source = (build.ROOT / '.github/workflows' / name).read_text().splitlines()[0]
+            self.assertIn(source.removeprefix('name: '), workflow)
+
     def test_release_retention_is_per_model_and_protects_recent_recovery(self):
         releases = [self.make_release(p, n) for p in self.profiles for n in range(1, 7)]
         candidates = cleanup.release_candidates(releases, self.profiles, self.values, self.now)
         self.assertEqual({r['tag_name'] for r in candidates}, {f'{p}-r{n}-1' for p in self.profiles for n in range(2, 7)})
-        recent = [self.make_release('s20p-mtk', n, age=2) for n in range(1, 9)]
+        recent = [self.make_release('s20p-mtk', n, age=0) for n in range(1, 9)]
+        recent.append(self.make_release('s20p-mtk', 9, age=2))
         self.assertEqual({r['tag_name'] for r in cleanup.release_candidates(recent, self.profiles, self.values, self.now)},
-                         {f's20p-mtk-r{n}-1' for n in range(2, 9)})
+                         {'s20p-mtk-r9-1'})
 
     def test_unknown_drafts_prereleases_and_manual_releases_are_untouched(self):
         releases = [self.make_release('s20p-mtk', n, age=0.5) for n in range(1, 7)]
@@ -340,7 +393,31 @@ class CleanupTests(unittest.TestCase):
         preview = self.make_release('s20p-mtk', 8, age=0.5)
         preview['prerelease'] = True
         releases.append(preview)
-        self.assertEqual(cleanup.release_candidates(releases, self.profiles, self.values, self.now), [])
+        releases.append(dict(self.make_release('s20p-mtk', 9), tag_name='s20p-mtk-latest'))
+        releases.append(dict(self.make_release('s20p-mtk', 10), published_at=None))
+        values = dict(self.values, release_recovery_days=0)
+        self.assertEqual({r['tag_name'] for r in cleanup.release_candidates(releases, self.profiles, values, self.now)},
+                         {f's20p-mtk-r{n}-1' for n in (2, 3, 4)})
+
+    def test_dry_run_and_apply_delete_only_old_managed_releases_and_exact_tags(self):
+        releases = [self.make_release('s20p-mtk', n, age=0) for n in (1, 2)]
+        releases.append(self.make_release('x86-64', 3))
+        for apply in (False, True):
+            argv = ['cleanup.py', '--apply'] if apply else ['cleanup.py']
+            with self.subTest(apply=apply), \
+                    patch.object(cleanup, 'active_builds', return_value=[]), \
+                    patch.object(cleanup, 'settings', return_value=dict(self.values, release_recovery_days=0)), \
+                    patch.object(cleanup, 'read_toml', return_value={'profiles': self.profiles}), \
+                    patch.object(cleanup, 'api', side_effect=[[releases], [{'actions_caches': []}]]), \
+                    patch.object(cleanup.subprocess, 'run') as delete, \
+                    patch.dict(cleanup.os.environ, {'GITHUB_REPOSITORY': 'owner/repo'}), \
+                    patch('sys.argv', argv):
+                cleanup.main()
+                if apply:
+                    delete.assert_called_once_with(['gh', 'release', 'delete', 's20p-mtk-r2-1',
+                                                    '--cleanup-tag', '--yes', '--repo', 'owner/repo'], check=True)
+                else:
+                    delete.assert_not_called()
 
     def test_cache_retention_separates_model_kind_and_ref(self):
         caches = []
@@ -368,6 +445,16 @@ class CleanupTests(unittest.TestCase):
                 patch('sys.argv', ['cleanup.py', '--apply']), patch.object(cleanup, 'api') as api:
             cleanup.main()
             api.assert_not_called()
+
+    def test_queued_recovery_also_defers_cleanup_until_its_completion_event(self):
+        build_run = {'path': '.github/workflows/build.yml', 'id': 1}
+        recovery_run = {'path': '.github/workflows/release.yml', 'id': 2}
+        other_run = {'path': '.github/workflows/check.yml', 'id': 3}
+        pages = [[{'workflow_runs': [build_run, other_run]}],
+                 [{'workflow_runs': [recovery_run]}]] + [[{'workflow_runs': []}]] * 3
+        with patch.object(cleanup, 'api', side_effect=pages) as api:
+            self.assertEqual(cleanup.active_builds('repos/owner/repo'), [build_run, recovery_run])
+            api.assert_any_call('repos/owner/repo/actions/runs?status=queued&per_page=100', True)
 
 
 if __name__ == '__main__':
