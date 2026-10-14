@@ -357,17 +357,22 @@ class SevenDrPreparationTests(unittest.TestCase):
 
 
 class SevenDrPublicationTests(unittest.TestCase):
-    def test_fit_lookup_accepts_bare_and_squashfs_sysupgrade_names(self):
-        profile = dict(image_match="tplink_tl-7dr7299-v1")
-        for suffix in ("sysupgrade.itb", "squashfs-sysupgrade.itb"):
-            with self.subTest(suffix=suffix), tempfile.TemporaryDirectory() as directory:
-                target = Path(directory)
-                prefix = "immortalwrt-mediatek-filogic-" + profile["image_match"]
-                sysupgrade = fixture(target, prefix + "-" + suffix, "sysupgrade")
-                recovery = fixture(target, prefix + "-recovery.itb", "recovery")
-                fixture(target, prefix + "0-squashfs-sysupgrade.itb", "wrong device")
-                fixture(target, prefix + "-preloader.bin", "not firmware")
-                self.assertEqual(build.seven_dr_images(target, profile), [sysupgrade, recovery])
+    def test_fit_lookup_accepts_upstream_and_legacy_filenames(self):
+        profiles = build.read_toml(build.ROOT / "Config/profiles.toml")["profiles"]
+        for name in VARIANTS:
+            profile = profiles[name]
+            for upgrade_suffix in ("sysupgrade.itb", "squashfs-sysupgrade.itb"):
+                for recovery_suffix in ("recovery.itb", "initramfs-recovery.itb"):
+                    with self.subTest(profile=name, upgrade=upgrade_suffix, recovery=recovery_suffix), \
+                            tempfile.TemporaryDirectory() as directory:
+                        target = Path(directory)
+                        prefix = "immortalwrt-mediatek-" + profile["subtarget"] + "-" + profile["image_match"]
+                        sysupgrade = fixture(target, prefix + "-" + upgrade_suffix, "sysupgrade")
+                        recovery = fixture(target, prefix + "-" + recovery_suffix, "recovery")
+                        for suffix in (upgrade_suffix, recovery_suffix):
+                            fixture(target, prefix + "0-" + suffix, "wrong device")
+                        fixture(target, prefix + "-preloader.bin", "not firmware")
+                        self.assertEqual(build.seven_dr_images(target, profile), [sysupgrade, recovery])
 
     def test_fit_lookup_rejects_missing_or_duplicate_images(self):
         profile = dict(image_match="tplink_tl-7dr7299-v1")
@@ -376,20 +381,21 @@ class SevenDrPublicationTests(unittest.TestCase):
                 target = Path(directory)
                 prefix = "immortalwrt-mediatek-filogic-" + profile["image_match"]
                 sysupgrade = fixture(target, prefix + "-squashfs-sysupgrade.itb", "sysupgrade")
-                recovery = fixture(target, prefix + "-recovery.itb", "recovery")
+                recovery = fixture(target, prefix + "-initramfs-recovery.itb", "recovery")
                 missing = sysupgrade if kind == "sysupgrade" else recovery
                 missing.unlink()
                 missing.mkdir()
                 fixture(target, "immortalwrt-unrelated-" + kind + ".itb", "wrong device")
-                with self.assertRaisesRegex(ValueError, "Expected one 7DR7299 " + kind):
+                with self.assertRaisesRegex(ValueError, "Expected one 7DR7299 " + kind) as error:
                     build.seven_dr_images(target, profile)
+                self.assertIn("matched 0: none; available:", str(error.exception))
                 missing.rmdir()
                 missing.write_text("restored")
-                duplicate = (prefix + "-sysupgrade.itb" if kind == "sysupgrade"
-                             else "openwrt-" + profile["image_match"] + "-recovery.itb")
+                duplicate = prefix + ("-sysupgrade.itb" if kind == "sysupgrade" else "-recovery.itb")
                 fixture(target, duplicate, "duplicate")
-                with self.assertRaisesRegex(ValueError, "Expected one 7DR7299 " + kind):
+                with self.assertRaisesRegex(ValueError, "Expected one 7DR7299 " + kind) as error:
                     build.seven_dr_images(target, profile)
+                self.assertIn("matched 2:", str(error.exception))
 
     def test_fit_sysupgrade_and_recovery_are_separate_public_assets(self):
         for name in VARIANTS:
@@ -405,18 +411,20 @@ class SevenDrPublicationTests(unittest.TestCase):
                 build.write_json(tree / ".build-identity.json", identity)
                 fixture(tree, ".config", serialize(lock["config"]))
                 target = tree / "bin/targets" / profile["target"] / profile["subtarget"]
-                for kind in ("squashfs-sysupgrade", "recovery"):
-                    fixture(target, "immortalwrt-" + profile["image_match"] + "-" + kind + ".itb", "fit image")
+                platform = "immortalwrt-" + profile["target"] + "-" + profile["subtarget"]
+                prefix = platform + "-" + profile["image_match"]
+                for kind in ("squashfs-sysupgrade", "initramfs-recovery"):
+                    fixture(target, prefix + "-" + kind + ".itb", "fit image")
                 for filename in ("preloader.bin", "bl31-uboot.fip", "unrelated-sysupgrade.itb",
                                  "immortalwrt-" + profile["image_match"] + "0-squashfs-sysupgrade.itb"):
                     fixture(target, filename, "excluded")
-                fixture(target, "immortalwrt-" + profile["image_match"] + ".manifest",
+                fixture(target, platform + ".manifest",
                         "".join(package + " - 1\n" for package in profile["required_image_packages"]))
                 with patch.object(build, "ROOT", root), patch.object(build, "run", return_value=""), \
                         patch.object(build, "validate_config"), patch.object(build, "validate_mtk_sysupgrade") as tar_check:
                     build.collect(SimpleNamespace(lock=root / "lock.json", source=tree, output_dir=root / "out"))
                     tar_check.assert_not_called()
-                    (target / ("immortalwrt-" + profile["image_match"] + "-squashfs-sysupgrade.itb")).unlink()
+                    (target / (prefix + "-squashfs-sysupgrade.itb")).unlink()
                     with self.assertRaisesRegex(ValueError, "Expected one 7DR7299 sysupgrade.itb"):
                         build.collect(SimpleNamespace(lock=root / "lock.json", source=tree, output_dir=root / "missing"))
                 info = build.read_json(root / "out/build-info.json")

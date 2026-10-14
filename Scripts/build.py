@@ -711,14 +711,16 @@ def validate_image_packages(target, profile, profile_id=None):
 def seven_dr_images(target, profile):
     images = []
     available = sorted(path for path in target.glob("*.itb") if path.is_file())
+    # Final filenames include OpenWrt's squashfs/initramfs prefixes.
     suffixes = {"sysupgrade": ("-squashfs-sysupgrade.itb", "-sysupgrade.itb"),
-                "recovery": ("-recovery.itb",)}
+                "recovery": ("-initramfs-recovery.itb", "-recovery.itb")}
     for kind, endings in suffixes.items():
         candidates = [path for path in available
                       if any(path.name.endswith("-" + profile["image_match"] + ending) for ending in endings)]
         if len(candidates) != 1:
+            matched = ", ".join(path.name for path in candidates) or "none"
             found = ", ".join(path.name for path in available) or "none"
-            raise ValueError("Expected one 7DR7299 " + kind + ".itb image; found: " + found)
+            raise ValueError(f"Expected one 7DR7299 {kind}.itb image; matched {len(candidates)}: {matched}; available: {found}")
         images.extend(candidates)
     return images
 
