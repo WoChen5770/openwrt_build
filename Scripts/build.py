@@ -354,6 +354,9 @@ def integrate(lock, tree):
         with tempfile.TemporaryDirectory(prefix="owrt-package-") as temporary:
             clone = Path(temporary) / "source"
             checkout(package["repository"], package["commit"], clone)
+            if mode == "golang-toolchain":
+                install_daed_go_toolchain(tree, clone, package["version"])
+                continue
             dirs = package.get("directories") or (["."] if (clone / "Makefile").exists() else
                                                       [p.name for p in clone.iterdir() if p.is_dir() and (p / "Makefile").exists()])
             for directory in dirs:
@@ -368,6 +371,8 @@ def integrate(lock, tree):
             else:
                 for directory in dirs:
                     shutil.copytree(clone / directory, tree / "package" / directory, ignore=shutil.ignore_patterns(".git", ".github"))
+    if "golang-daed" in lock["packages"]:
+        use_daed_go_toolchain(tree, lock["packages"]["golang-daed"]["version"])
     if "luci-app-adguardhome" in lock["packages"]:
         use_packaged_adguardhome(tree)
     if "xray" in lock:
@@ -394,6 +399,31 @@ def integrate(lock, tree):
     # Maintain the old Rust build fix without unrelated theme/download hacks.
     for path in (tree / "feeds/packages").glob("*/rust/Makefile"):
         path.write_text(path.read_text().replace("ci-llvm=true", "ci-llvm=false"))
+
+
+def install_daed_go_toolchain(tree, clone, version):
+    if not re.fullmatch(r"1\.[0-9]+", version):
+        raise ValueError("Invalid dae/daed Go version")
+    source = clone / "lang/golang"
+    for relative in ("golang-package.mk", "golang-values.mk", "golang-compiler.mk", "golang-version.mk",
+                     "golang-bootstrap/Makefile", "golang" + version + "/Makefile"):
+        if not (source / relative).is_file():
+            raise ValueError("Versioned Go toolchain changed upstream: " + relative)
+    # Versioned host binaries coexist with the feed's go-cross compiler. Do not
+    # import the default 'golang' alias or replace the upstream feed/helpers.
+    shutil.copytree(source, tree / "package/golang-daed", ignore=shutil.ignore_patterns("golang"))
+
+
+def use_daed_go_toolchain(tree, version):
+    for name in ("dae", "daed"):
+        path = tree / "package" / name / "Makefile"
+        content, dependencies = re.subn(r"(?m)^(PKG_BUILD_DEPENDS[ \t]*:?=[ \t]*)golang/host(?=[ \t]|$)",
+                                        lambda m: m[1] + "golang" + version + "/host", path.read_text())
+        content, includes = re.subn(r"(?m)^include \$\(TOPDIR\)/feeds/packages/lang/golang/golang-package\.mk[ \t]*$",
+                                   "include $(TOPDIR)/package/golang-daed/golang-package.mk", content)
+        if dependencies != 1 or includes != 1:
+            raise ValueError(name + ": Go build declarations changed upstream")
+        path.write_text(content)
 
 
 def use_packaged_adguardhome(tree):
@@ -678,6 +708,21 @@ def validate_image_packages(target, profile, profile_id=None):
     return manifest
 
 
+def seven_dr_images(target, profile):
+    images = []
+    available = sorted(path for path in target.glob("*.itb") if path.is_file())
+    suffixes = {"sysupgrade": ("-squashfs-sysupgrade.itb", "-sysupgrade.itb"),
+                "recovery": ("-recovery.itb",)}
+    for kind, endings in suffixes.items():
+        candidates = [path for path in available
+                      if any(path.name.endswith("-" + profile["image_match"] + ending) for ending in endings)]
+        if len(candidates) != 1:
+            found = ", ".join(path.name for path in available) or "none"
+            raise ValueError("Expected one 7DR7299 " + kind + ".itb image; found: " + found)
+        images.extend(candidates)
+    return images
+
+
 def validate_mtk_sysupgrade(path):
     # Inspect the actual SquashFS, not just Kconfig or the package manifest.
     with tempfile.TemporaryDirectory(prefix="owrt-image-check-") as temporary:
@@ -755,11 +800,7 @@ def collect(args):
     if identity["profile_id"] != lock["profile_id"]:
         raise ValueError("Build identity profile mismatch")
     manifest = validate_image_packages(target, profile, lock["profile_id"])
-    if lock["profile_id"].startswith("7dr7299-"):
-        for kind in ("sysupgrade", "recovery"):
-            candidates = list(target.glob("*" + profile["image_match"] + "-" + kind + ".itb"))
-            if len(candidates) != 1:
-                raise ValueError("Expected one 7DR7299 " + kind + ".itb image")
+    fit_images = seven_dr_images(target, profile) if lock["profile_id"].startswith("7dr7299-") else None
     if lock["profile_id"] == "s20p-mtk":
         sysupgrades = list(target.glob("*" + profile["image_match"] + "*sysupgrade*.bin"))
         if len(sysupgrades) != 1:
@@ -777,8 +818,9 @@ def collect(args):
             continue
         is_image = profile["image_match"] in path.name and path.name.endswith(IMAGE_EXTENSIONS) and (
             any(s in path.name for s in ("sysupgrade", "factory", "initramfs")) or
-            (lock["profile_id"].startswith("7dr7299-") and path.name.endswith("-recovery.itb")) or
             (profile["target"] == "x86" and re.search(r"\.(img(?:\.gz)?|vmdk|vdi|qcow2)$", path.name)))
+        if fit_images is not None:
+            is_image = path in fit_images
         if is_image:
             name = dated_filename(path.name, stamp)
             shutil.copy2(path, output / name)

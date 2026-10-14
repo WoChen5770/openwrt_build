@@ -132,8 +132,13 @@ class SevenDrProfileTests(unittest.TestCase):
                 self.assertIn(name, self.packages[package]["profiles"])
         self.assertIn(VARIANTS[0], self.packages["mesh"]["profiles"])
         self.assertNotIn(VARIANTS[1], self.packages["mesh"]["profiles"])
-        self.assertNotIn("golang-7dr7299", self.packages)
         self.assertTrue(all(package["mode"] != "golang-backport" for package in self.packages.values()))
+        toolchain = self.packages["golang-daed"]
+        self.assertEqual(toolchain["profiles"], [VARIANTS[1]])
+        self.assertEqual(toolchain["mode"], "golang-toolchain")
+        self.assertEqual(toolchain["version"], "1.27")
+        self.assertEqual(toolchain["repository"], "https://github.com/immortalwrt/packages.git")
+        self.assertRegex(toolchain["commit"], build.SHA)
         self.assertIn("TPLINK-7DR7299-MT76", (build.ROOT / "Scripts/Mesh.sh").read_text())
         self.assertNotIn("TPLINK-7DR7299-MTK", (build.ROOT / "Scripts/Mesh.sh").read_text())
         for name in ("TPLINK-7DR7299-MT76", "TPLINK-7DR7299-MTK"):
@@ -156,11 +161,81 @@ class SevenDrProfileTests(unittest.TestCase):
             vendor_lock = build.read_json(output / (VARIANTS[1] + ".json"))
             self.assertNotEqual(open_lock["source"]["commit"], vendor_lock["source"]["commit"])
             self.assertEqual(open_lock["source"], build.read_json(output / "s20p-mt76.json")["source"])
-            self.assertNotIn("golang-7dr7299", open_lock["packages"])
-            self.assertNotIn("golang-7dr7299", vendor_lock["packages"])
+            for name in self.specs["profiles"]:
+                locked = build.read_json(output / (name + ".json"))
+                self.assertEqual("golang-daed" in locked["packages"], name == VARIANTS[1])
+            self.assertEqual(vendor_lock["packages"]["golang-daed"], self.packages["golang-daed"])
 
 
 class SevenDrPreparationTests(unittest.TestCase):
+    def toolchain_fixture(self, clone):
+        for relative in ("golang-package.mk", "golang-values.mk", "golang-compiler.mk", "golang-version.mk",
+                         "golang-bootstrap/Makefile", "golang1.27/Makefile", "golang/Makefile"):
+            fixture(clone, "lang/golang/" + relative, "versioned toolchain " + relative + "\n")
+
+    def test_daed_toolchain_coexists_with_upstream_go_and_only_retargets_daemons(self):
+        with tempfile.TemporaryDirectory() as directory:
+            tree = Path(directory)
+            compiler = fixture(tree, "feeds/packages/lang/golang/golang/Makefile", "upstream Go 1.23\n")
+            helper = fixture(tree, "feeds/packages/lang/golang/golang-package.mk", "upstream helper\n")
+            recipe = ("PKG_BUILD_DEPENDS:=golang/host bpf-headers\n"
+                      "include $(TOPDIR)/feeds/packages/lang/golang/golang-package.mk\n"
+                      "GO_PKG_TARGET_VARS+= GOEXPERIMENT=newinliner,simd\n")
+            other = fixture(tree, "feeds/packages/net/adguardhome/Makefile", recipe)
+            toolchain = build.read_toml(build.ROOT / "Config/packages.toml")["golang-daed"]
+            daed = dict(repository="https://example.invalid/daed.git", commit="a" * 40,
+                        mode="nested", directories=["dae", "daed"])
+            # The toolchain can be installed before its consumers are integrated.
+            lock = dict(profile=dict(legacy_name="TPLINK-7DR7299-MTK"),
+                        packages={"golang-daed": toolchain, "daed": daed})
+
+            def checkout(repo, commit, clone):
+                if repo == toolchain["repository"]:
+                    self.toolchain_fixture(clone)
+                else:
+                    for name in ("dae", "daed"):
+                        fixture(clone, name + "/Makefile", recipe)
+
+            with patch.object(build, "checkout", side_effect=checkout), patch.object(build, "run") as run:
+                build.integrate(lock, tree)
+                run.assert_not_called()
+            self.assertEqual(compiler.read_text(), "upstream Go 1.23\n")
+            self.assertEqual(helper.read_text(), "upstream helper\n")
+            self.assertEqual(other.read_text(), recipe)
+            self.assertFalse((tree / "package/golang-daed/golang").exists())
+            self.assertTrue((tree / "package/golang-daed/golang-bootstrap/Makefile").is_file())
+            self.assertTrue((tree / "package/golang-daed/golang1.27/Makefile").is_file())
+            for name in ("dae", "daed"):
+                content = (tree / "package" / name / "Makefile").read_text()
+                self.assertIn("PKG_BUILD_DEPENDS:=golang1.27/host bpf-headers", content)
+                self.assertIn("include $(TOPDIR)/package/golang-daed/golang-package.mk", content)
+                self.assertIn("GOEXPERIMENT=newinliner,simd", content)
+
+    def test_daed_toolchain_rejects_invalid_version_or_missing_compiler(self):
+        with tempfile.TemporaryDirectory() as directory:
+            tree = Path(directory)
+            clone = tree / "donor"
+            self.toolchain_fixture(clone)
+            with self.assertRaisesRegex(ValueError, "Invalid dae/daed Go version"):
+                build.install_daed_go_toolchain(tree, clone, "../outside")
+            (clone / "lang/golang/golang1.27/Makefile").unlink()
+            with self.assertRaisesRegex(ValueError, "Versioned Go toolchain changed upstream"):
+                build.install_daed_go_toolchain(tree, clone, "1.27")
+            self.assertFalse((tree / "package/golang-daed").exists())
+
+    def test_daed_toolchain_rejects_changed_consumer_declarations(self):
+        recipe = ("PKG_BUILD_DEPENDS:=golang/host bpf-headers\n"
+                  "include $(TOPDIR)/feeds/packages/lang/golang/golang-package.mk\n")
+        for content in (recipe.replace("golang/host", "other/host"),
+                        recipe.replace("golang-package.mk", "other.mk"), recipe + recipe):
+            with self.subTest(recipe=content), tempfile.TemporaryDirectory() as directory:
+                tree = Path(directory)
+                path = fixture(tree, "package/dae/Makefile", content)
+                fixture(tree, "package/daed/Makefile", recipe)
+                with self.assertRaisesRegex(ValueError, "Go build declarations changed upstream"):
+                    build.use_daed_go_toolchain(tree, "1.27")
+                self.assertEqual(path.read_text(), content)
+
     def test_adguardhome_ui_uses_existing_core_without_replacing_services(self):
         with tempfile.TemporaryDirectory() as directory:
             tree = Path(directory)
@@ -282,6 +357,40 @@ class SevenDrPreparationTests(unittest.TestCase):
 
 
 class SevenDrPublicationTests(unittest.TestCase):
+    def test_fit_lookup_accepts_bare_and_squashfs_sysupgrade_names(self):
+        profile = dict(image_match="tplink_tl-7dr7299-v1")
+        for suffix in ("sysupgrade.itb", "squashfs-sysupgrade.itb"):
+            with self.subTest(suffix=suffix), tempfile.TemporaryDirectory() as directory:
+                target = Path(directory)
+                prefix = "immortalwrt-mediatek-filogic-" + profile["image_match"]
+                sysupgrade = fixture(target, prefix + "-" + suffix, "sysupgrade")
+                recovery = fixture(target, prefix + "-recovery.itb", "recovery")
+                fixture(target, prefix + "0-squashfs-sysupgrade.itb", "wrong device")
+                fixture(target, prefix + "-preloader.bin", "not firmware")
+                self.assertEqual(build.seven_dr_images(target, profile), [sysupgrade, recovery])
+
+    def test_fit_lookup_rejects_missing_or_duplicate_images(self):
+        profile = dict(image_match="tplink_tl-7dr7299-v1")
+        for kind in ("sysupgrade", "recovery"):
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as directory:
+                target = Path(directory)
+                prefix = "immortalwrt-mediatek-filogic-" + profile["image_match"]
+                sysupgrade = fixture(target, prefix + "-squashfs-sysupgrade.itb", "sysupgrade")
+                recovery = fixture(target, prefix + "-recovery.itb", "recovery")
+                missing = sysupgrade if kind == "sysupgrade" else recovery
+                missing.unlink()
+                missing.mkdir()
+                fixture(target, "immortalwrt-unrelated-" + kind + ".itb", "wrong device")
+                with self.assertRaisesRegex(ValueError, "Expected one 7DR7299 " + kind):
+                    build.seven_dr_images(target, profile)
+                missing.rmdir()
+                missing.write_text("restored")
+                duplicate = (prefix + "-sysupgrade.itb" if kind == "sysupgrade"
+                             else "openwrt-" + profile["image_match"] + "-recovery.itb")
+                fixture(target, duplicate, "duplicate")
+                with self.assertRaisesRegex(ValueError, "Expected one 7DR7299 " + kind):
+                    build.seven_dr_images(target, profile)
+
     def test_fit_sysupgrade_and_recovery_are_separate_public_assets(self):
         for name in VARIANTS:
             with self.subTest(profile=name), tempfile.TemporaryDirectory() as directory:
@@ -296,9 +405,10 @@ class SevenDrPublicationTests(unittest.TestCase):
                 build.write_json(tree / ".build-identity.json", identity)
                 fixture(tree, ".config", serialize(lock["config"]))
                 target = tree / "bin/targets" / profile["target"] / profile["subtarget"]
-                for kind in ("sysupgrade", "recovery"):
+                for kind in ("squashfs-sysupgrade", "recovery"):
                     fixture(target, "immortalwrt-" + profile["image_match"] + "-" + kind + ".itb", "fit image")
-                for filename in ("preloader.bin", "bl31-uboot.fip", "unrelated-sysupgrade.itb"):
+                for filename in ("preloader.bin", "bl31-uboot.fip", "unrelated-sysupgrade.itb",
+                                 "immortalwrt-" + profile["image_match"] + "0-squashfs-sysupgrade.itb"):
                     fixture(target, filename, "excluded")
                 fixture(target, "immortalwrt-" + profile["image_match"] + ".manifest",
                         "".join(package + " - 1\n" for package in profile["required_image_packages"]))
@@ -306,7 +416,7 @@ class SevenDrPublicationTests(unittest.TestCase):
                         patch.object(build, "validate_config"), patch.object(build, "validate_mtk_sysupgrade") as tar_check:
                     build.collect(SimpleNamespace(lock=root / "lock.json", source=tree, output_dir=root / "out"))
                     tar_check.assert_not_called()
-                    (target / ("immortalwrt-" + profile["image_match"] + "-sysupgrade.itb")).unlink()
+                    (target / ("immortalwrt-" + profile["image_match"] + "-squashfs-sysupgrade.itb")).unlink()
                     with self.assertRaisesRegex(ValueError, "Expected one 7DR7299 sysupgrade.itb"):
                         build.collect(SimpleNamespace(lock=root / "lock.json", source=tree, output_dir=root / "missing"))
                 info = build.read_json(root / "out/build-info.json")

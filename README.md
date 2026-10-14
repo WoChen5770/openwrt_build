@@ -78,6 +78,7 @@ tests/               配置、构建和发布回归测试
 | `Scripts/PRIVATE.sh` | 可选 Bash 钩子，在锁定插件集成之后、默认设置 / QModem 清理之前执行；工作目录为 OpenWrt 源码根目录 |
 | ccache | 上限 1 GiB；命中统计见 `logs/ccache.log` |
 | host / 工具链缓存 | 按机型与构建配置隔离，不缓存 target 产物 |
+| 7DR7299 MTK 的 Go | 仅 dae / daed 使用锁定的独立 Go 1.27 工具链；其他软件包继续使用上游 Go |
 | MTK 服务 | 不集成 Mesh；daed / honk 已集成，默认不启用 |
 
 临时选包示例（可多行，也可用字面量 `\n` 分隔）：

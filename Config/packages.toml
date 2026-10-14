@@ -37,6 +37,14 @@ profiles = ["s20p-mt76", "s20p-mtk", "x86-64", "7dr7299-mt76", "7dr7299-mtk"]
 mode = "nested"
 directories = ["dae", "daed", "luci-app-daede", "v2ray-geodata"]
 
+# 旧版源码的独立代理编译器，不替换上游 Go
+[golang-daed]
+repository = "https://github.com/immortalwrt/packages.git"
+commit = "25ad600a90980bed1ee76a212f9a5e42b499bb62"
+profiles = ["7dr7299-mtk"]
+mode = "golang-toolchain"
+version = "1.27"
+
 # 异地组网
 [easytier]
 repository = "https://github.com/EasyTier/luci-app-easytier.git"
