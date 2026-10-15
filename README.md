@@ -18,9 +18,9 @@
 | Xiaomi BE6500 | ath12k · PPE · Mesh / DAWN | [VIKINGYFY / owrt](https://github.com/VIKINGYFY/immortalwrt/tree/owrt) |
 | Tenda BE12 Pro | MT76 · Mesh / DAWN | [VIKINGYFY / owrt](https://github.com/VIKINGYFY/immortalwrt/tree/owrt) |
 | S20P · MT76 | 开源无线 · Mesh<br>PassWall（Xray-only）· daed / honk · EasyTier · AdGuard Home | [VIKINGYFY / owrt](https://github.com/VIKINGYFY/immortalwrt/tree/owrt) |
-| S20P · MTK | 厂商无线 · HNAT / WARP · TurboACC / eQoS<br>PassWall（Xray-only）· daed / honk · EasyTier · AdGuard Home | [chasey-dev / 25.12](https://github.com/chasey-dev/immortalwrt-mt798x-rebase/tree/25.12) |
+| S20P · MTK | 闭源无线 · HNAT / WARP · TurboACC / eQoS<br>PassWall（Xray-only）· daed / honk · EasyTier · AdGuard Home | [chasey-dev / 25.12](https://github.com/chasey-dev/immortalwrt-mt798x-rebase/tree/25.12) |
 | TL-7DR7299 v1 · MT76 | 开源无线 · Mesh / DAWN<br>PassWall（Xray-only）· daed / honk · EasyTier · AdGuard Home | [VIKINGYFY / owrt](https://github.com/VIKINGYFY/immortalwrt/tree/owrt) |
-| TL-7DR7299 v1 · MTK | 闭源 Wi-Fi 7 · HNAT / WARP · TurboACC / eQoS<br>PassWall（Xray-only）· daed / honk · EasyTier · AdGuard Home | [padavanonly / 6.6-mtwifi](https://github.com/padavanonly/immortalwrt-mt798x-6.6/tree/mt798x-mt799x-6.6-mtwifi) |
+| TL-7DR7299 v1 · MTK | 闭源无线 · HNAT / WARP · TurboACC / eQoS<br>PassWall（Xray-only）· daed / honk · EasyTier · AdGuard Home | [padavanonly / 6.6-mtwifi](https://github.com/padavanonly/immortalwrt-mt798x-6.6/tree/mt798x-mt799x-6.6-mtwifi) |
 | x86-64 | BBR · BIOS / UEFI / VMDK<br>PassWall（Xray-only）· daed / honk · EasyTier · AdGuard Home | [VIKINGYFY / owrt](https://github.com/VIKINGYFY/immortalwrt/tree/owrt) |
 
 ## 默认设置
@@ -99,23 +99,6 @@ tests/               配置、构建和发布回归测试
 CONFIG_PACKAGE_luci-app-samba4=y
 CONFIG_PACKAGE_samba4=y
 ```
-
-覆盖顺序：机型配置 → `Config/PRIVATE.txt` → `packages`；选包丢失或违反机型约束会终止构建。
-
-PRIVATE 文件需提交到构建分支；配置与构建记录会公开，勿放入 Token、私钥或私密密码。
-
-清理参数见 `Config/build-settings.toml`，旧 Release 保护期默认 **0 天**；MTK / MT76 配置分别保留最新一份。仅清理本项目可识别的正式 Release 及其标签，不动草稿、预发布或手工 Release，也不会删除某机型唯一的正式版本。
-
-腾达 BE12 Pro、S20P MT76、7DR7299 MT76 共用 `viking-filogic` ccache。每轮从实际构建的机型中选一个写入者，优先级为 **7DR7299 MT76 → S20P MT76 → 腾达 BE12 Pro**；其余机型只读取。单独构建其中任一机型时，该机型负责更新缓存。其他四个机型各自独立。GitHub Cache 不会合并并行任务的新增结果，写入者失败时保留旧缓存；机型专用代码可能仍需重新编译。
-
-host / 工具链与 hostpkg 暂不跨机型共用。安装缓存的指纹在 `defconfig` 后计算，包含本地工具链 / 内核补丁及宿主环境；不再以运行编号或整个仓库的 `ci_hash` 作为版本，README 或其他机型配置变更不会单独令其失效。hostpkg 保留更严格的软件包依赖校验。存在 `Scripts/PRIVATE.sh` 时关闭这两类安装缓存，避免任意钩子引入未记录的构建输入；ccache 仍可使用。
-
-仅在固件校验、附件上传成功后保存缓存。ccache 按组 / 分支保留最新 1 代，host / 工具链及 hostpkg 按机型 / 分支分别保留最近使用的 1 份；缓存保护期默认 **0 天**，没有构建进行时即可删除被成功替换的旧代，不删除唯一有效缓存。缓存键和各目录体积见 `logs/cache-plan.json`、`logs/cache-sizes.log`。
-
-不缓存 `dl`、`build_dir/target-*` 或 `staging_dir/target-*`。旧的 `dl` / ccache 混合包不会命中新键，也不会自动缩小；迁移时可手动清空旧缓存，再通过冷启动构建重建。
-
-仅本仓库默认分支的构建工作流完成事件会自动触发清理，不要求整次构建成功，以覆盖部分机型成功发布的情况。若仍有构建工作流排队或运行（含发布阶段），本轮跳过，由后续完成事件或每日任务再次清理。手动清理默认仅预览；需要长期保留的固件请自行备份。
-
 </details>
 
 <details>
@@ -124,6 +107,6 @@ host / 工具链与 hostpkg 暂不跨机型共用。安装缓存的指纹在 `de
 | 项目 | 说明 |
 | :--- | :--- |
 | 默认设置 | 首次使用请修改管理与 Wi-Fi 密码；保留配置升级沿用原有设置 |
-| 固件选择 | 核对机型、引导器与分区；S20P / 7DR7299 的 MTK 与 MT76 版不保证直接互刷 |
+| 固件选择 | 核对机型、引导器与分区；S20P / 7DR7299 的 MTK 与 MT76 版不保证100%直接互刷 |
 
 </details>
