@@ -108,8 +108,9 @@ class HardwareProfileTests(unittest.TestCase):
     def test_manifest_requires_each_hardware_package(self):
         with tempfile.TemporaryDirectory() as directory:
             target = Path(directory)
-            for name, packages in HARDWARE_PACKAGES.items():
+            for name in HARDWARE_PACKAGES:
                 profile = self.profiles[name]
+                packages = set(profile["required_image_packages"])
                 manifest = target / ("immortalwrt-" + profile["image_match"] + ".manifest")
 
                 def write_manifest(selected):

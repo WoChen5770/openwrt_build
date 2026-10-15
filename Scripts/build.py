@@ -194,6 +194,8 @@ def defaults(profile_id=None):
     profiles = read_toml(ROOT / "Config/profiles.toml")["profiles"]
     if profile_id is not None:
         values["hostname"] = profiles[profile_id]["hostname"]
+        if profiles[profile_id].get("network_tuning"):
+            values["network_tuning"] = True
     return values
 
 
@@ -536,6 +538,11 @@ def apply_defaults(tree, values, vendor=False, wireless_defaults=None):
     overlay.mkdir(parents=True, exist_ok=True)
     for original in (ROOT / "Scripts/uci-defaults").iterdir():
         shutil.copy2(original, overlay / original.name)
+    if values.get("network_tuning"):
+        # Boot sysctl applies fq before netifd creates interfaces, not in uci-defaults.
+        sysctl = tree / "files/etc/sysctl.d"
+        sysctl.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(ROOT / "Scripts/Files/network-tuning.conf", sysctl / "11-project-network.conf")
     # Only system settings; never overwrite restored wireless/network configuration.
     script = "#!/bin/sh\nuci set system.@system[0].hostname='" + values["hostname"] + "'\n"
     script += "uci set system.@system[0].timezone='" + values["timezone"] + "'\n"

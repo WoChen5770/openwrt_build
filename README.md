@@ -15,11 +15,11 @@
 
 | 机型 | 特性与插件 | 源码 |
 | :--- | :--- | :--- |
-| Xiaomi BE6500 | ath12k · PPE · Mesh / DAWN | [VIKINGYFY / owrt](https://github.com/VIKINGYFY/immortalwrt/tree/owrt) |
-| Tenda BE12 Pro | MT76 · Mesh / DAWN | [VIKINGYFY / owrt](https://github.com/VIKINGYFY/immortalwrt/tree/owrt) |
-| 超级网关S20P · MT76 | 开源无线 · Mesh<br>PassWall（Xray-only）· daed / honk · EasyTier · AdGuard Home | [VIKINGYFY / owrt](https://github.com/VIKINGYFY/immortalwrt/tree/owrt) |
+| Xiaomi BE6500 | ath12k · PPE · Mesh / DAWN · BBR / fq | [VIKINGYFY / owrt](https://github.com/VIKINGYFY/immortalwrt/tree/owrt) |
+| Tenda BE12 Pro | MT76 · Mesh / DAWN · BBR / fq | [VIKINGYFY / owrt](https://github.com/VIKINGYFY/immortalwrt/tree/owrt) |
+| 超级网关S20P · MT76 | 开源无线 · Mesh · BBR / fq<br>PassWall（Xray-only）· daed / honk · EasyTier · AdGuard Home | [VIKINGYFY / owrt](https://github.com/VIKINGYFY/immortalwrt/tree/owrt) |
 | 超级网关S20P · MTK | 闭源无线 · HNAT / WARP · TurboACC / eQoS<br>PassWall（Xray-only）· daed / honk · EasyTier · AdGuard Home | [chasey-dev / 25.12](https://github.com/chasey-dev/immortalwrt-mt798x-rebase/tree/25.12) |
-| TL-7DR7299 · MT76 | 开源无线 · Mesh / DAWN<br>PassWall（Xray-only）· daed / honk · EasyTier · AdGuard Home | [VIKINGYFY / owrt](https://github.com/VIKINGYFY/immortalwrt/tree/owrt) |
+| TL-7DR7299 · MT76 | 开源无线 · Mesh / DAWN · BBR / fq<br>PassWall（Xray-only）· daed / honk · EasyTier · AdGuard Home | [VIKINGYFY / owrt](https://github.com/VIKINGYFY/immortalwrt/tree/owrt) |
 | TL-7DR7299 · MTK | 闭源无线 · HNAT / WARP · TurboACC / eQoS<br>PassWall（Xray-only）· daed / honk · EasyTier · AdGuard Home | [padavanonly / 6.6-mtwifi](https://github.com/padavanonly/immortalwrt-mt798x-6.6/tree/mt798x-mt799x-6.6-mtwifi) |
 | x86-64 | BBR · BIOS / UEFI / VMDK<br>PassWall（Xray-only）· daed / honk · EasyTier · AdGuard Home | [VIKINGYFY / owrt](https://github.com/VIKINGYFY/immortalwrt/tree/owrt) |
 
@@ -32,6 +32,8 @@
 | Wi-Fi | `ImmortalWrt` · 密码 `12345678` |
 | 界面 | shadcn · 简体中文 |
 | 时区 | Asia/Shanghai |
+
+BE6500、BE12 Pro、S20P MT76、7DR7299 MT76 默认启用上游 BBR、`fq` 和 `net.ipv4.tcp_mtu_probing=1`。模块自动加载后，由开机 sysctl 服务在网络服务启动前读取 `/etc/sysctl.d/11-project-network.conf`，不依赖首次启动脚本。后置 sysctl 文件及 `/etc/sysctl.conf` 可覆盖这些默认值；不修改硬件卸载、QoS、接口 MTU、TFO 或 backlog。BBR 主要影响路由器本机 TCP 发送，不会替换普通转发连接两端的拥塞控制算法。闭源 MTK 与 x86 保持原有策略。
 
 ## 构建与发布
 

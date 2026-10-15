@@ -23,6 +23,7 @@ image_match = "tplink_tl-7dr7299-v1"
 variant = "mt76"
 legacy_name = "TPLINK-7DR7299-MT76"
 hostname = "7DR7299-MT76"
+network_tuning = true
 ccache_group = "viking-filogic"
 ccache_priority = 30
 
@@ -31,6 +32,8 @@ config = "Config/TPLINK-7DR7299-MT76.txt"
 
 # 必选配置
 required = [
+  "PACKAGE_kmod-tcp-bbr",
+  "PACKAGE_kmod-sched",
   "PACKAGE_kmod-mt7992-firmware",
   "PACKAGE_mt7988-wo-firmware",
   "PACKAGE_kmod-dsa-rtl837x",
@@ -41,6 +44,8 @@ required = [
 
 # 固件必需包
 required_image_packages = [
+  "kmod-tcp-bbr",
+  "kmod-sched",
   "kmod-mt7992-firmware",
   "mt7988-wo-firmware",
   "kmod-dsa-rtl837x",
@@ -224,12 +229,15 @@ image_match = "xiaomi_be6500"
 variant = "ath12k"
 legacy_name = "XIAOMI-BE6500"
 hostname = "XIAOMI-BE6500"
+network_tuning = true
 
 # 完整机型配置
 config = "Config/XIAOMI-BE6500.txt"
 
 # 必选配置
 required = [
+  "PACKAGE_kmod-tcp-bbr",
+  "PACKAGE_kmod-sched",
   "PACKAGE_kmod-ath12k",
   "PACKAGE_kmod-qcom-ppe",
   "PACKAGE_ipq-wifi-xiaomi_be6500",
@@ -239,6 +247,8 @@ required = [
 
 # 固件必需包
 required_image_packages = [
+  "kmod-tcp-bbr",
+  "kmod-sched",
   "kmod-ath12k",
   "kmod-qcom-ppe",
   "ipq-wifi-xiaomi_be6500",
@@ -267,6 +277,7 @@ image_match = "tenda_be12-pro"
 variant = "mt76"
 legacy_name = "TENDA-BE12-PRO"
 hostname = "TENDA-BE12-PRO"
+network_tuning = true
 ccache_group = "viking-filogic"
 ccache_priority = 10
 
@@ -275,6 +286,8 @@ config = "Config/TENDA-BE12-PRO.txt"
 
 # 必选配置
 required = [
+  "PACKAGE_kmod-tcp-bbr",
+  "PACKAGE_kmod-sched",
   "PACKAGE_kmod-mt7992-firmware",
   "PACKAGE_mt7987-2p5g-phy-firmware",
   "PACKAGE_airoha-en8811h-firmware",
@@ -283,6 +296,8 @@ required = [
 
 # 固件必需包
 required_image_packages = [
+  "kmod-tcp-bbr",
+  "kmod-sched",
   "kmod-mt7992-firmware",
   "mt7987-2p5g-phy-firmware",
   "airoha-en8811h-firmware",
@@ -310,6 +325,7 @@ image_match = "supergateway_s20p"
 variant = "mt76"
 legacy_name = "SUPERGATEWAY-S20P-MT76"
 hostname = "S20P-MT76"
+network_tuning = true
 ccache_group = "viking-filogic"
 ccache_priority = 20
 
@@ -317,10 +333,22 @@ ccache_priority = 20
 config = "Config/SUPERGATEWAY-S20P-MT76.txt"
 
 # 必选配置
-required = ["PACKAGE_kmod-mt7915e", "PACKAGE_kmod-mt7986-firmware", "PACKAGE_kmod-mmc"]
+required = [
+  "PACKAGE_kmod-mt7915e",
+  "PACKAGE_kmod-mt7986-firmware",
+  "PACKAGE_kmod-mmc",
+  "PACKAGE_kmod-tcp-bbr",
+  "PACKAGE_kmod-sched",
+]
 
 # 固件必需包
-required_image_packages = ["kmod-mt7915e", "kmod-mt7986-firmware", "kmod-mmc"]
+required_image_packages = [
+  "kmod-mt7915e",
+  "kmod-mt7986-firmware",
+  "kmod-mmc",
+  "kmod-tcp-bbr",
+  "kmod-sched",
+]
 
 # 禁用配置
 forbidden = ["PACKAGE_kmod-mt_wifi"]
