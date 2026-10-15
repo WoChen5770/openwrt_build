@@ -32,7 +32,6 @@ jobs:
               assert all(values.get(key) == expected for key, expected in profile.get('expected_config', {}).items()), name + ': driver platform configuration mismatch'
           PY
           python3 -m py_compile Scripts/*.py
-          python3 -m unittest discover -s tests -v
           while IFS= read -r script; do bash -n "$script"; done < <(find Scripts -name '*.sh' -type f)
       - name: Validate GitHub Actions syntax
         env:

@@ -496,6 +496,12 @@ def apply_defaults(tree, values, vendor=False, wireless_defaults=None):
     content, count = re.subn(r"hostname='[^']*'", "hostname='" + values["hostname"] + "'", content)
     if not count:
         raise ValueError("Hostname default generator changed upstream")
+    # Mark only newly generated networks. A late defaults hook must run after
+    # vendor network hooks, but must never reset a kept-config sysupgrade.
+    anchor = "if [ ! -s /etc/config/network ]; then\n"
+    if content.count(anchor) != 1:
+        raise ValueError("Fresh network generation guard changed upstream")
+    content = content.replace(anchor, anchor + "\ttouch /etc/.project-ipv6-defaults-pending || exit 1\n")
     generator.write_text(content)
     if vendor and wireless_defaults == "mtwifi-shell":
         path = tree / "package/mtk/applications/mtwifi-cfg/files/mtwifi.sh"

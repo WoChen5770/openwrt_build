@@ -1,0 +1,25 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+# 在上游网络初始化之后设置主路由默认值；保留配置升级不覆盖用户设置。
+# 标记由 config_generate 仅在生成全新 network 配置时创建。
+
+marker=/etc/.project-ipv6-defaults-pending
+[ -f "$marker" ] || exit 0
+
+[ "$(uci -q get network.lan)" = 'interface' ] || exit 1
+uci -q get dhcp.lan >/dev/null || uci set dhcp.lan='dhcp' || exit 1
+
+uci set network.lan.ip6assign='64' || exit 1
+uci set dhcp.lan.interface='lan' || exit 1
+uci set dhcp.lan.master='0' || exit 1
+uci set dhcp.lan.ra='server' || exit 1
+uci set dhcp.lan.dhcpv6='server' || exit 1
+uci set dhcp.lan.ra_slaac='1' || exit 1
+uci set dhcp.lan.ndp='disabled' || exit 1
+uci set dhcp.lan.ndproxy_routing='0' || exit 1
+uci commit network || exit 1
+uci commit dhcp || exit 1
+
+# 提交失败保留标记和脚本，下次启动重试。
+rm -f "$marker" || exit 1
+exit 0

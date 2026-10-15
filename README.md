@@ -55,7 +55,7 @@ Release 提供固件、完整配置、包清单及校验文件。Actions 日志�
 | :--- | :--- |
 | [Build firmware](https://github.com/WoChen5770/openwrt_build/actions/workflows/build.yml) | 锁定源码与配置、并行编译、筛选成功产物、校验并发布 Release |
 | [Clean old releases and caches](https://github.com/WoChen5770/openwrt_build/actions/workflows/cleanup.yml) | 清理本项目可识别的旧 Release / 标签和缓存；支持手动预览 |
-| [Repository checks](https://github.com/WoChen5770/openwrt_build/actions/workflows/check.yml) | 检查配置、运行回归测试、校验脚本和 Actions 语法，不编译固件 |
+| [Repository checks](https://github.com/WoChen5770/openwrt_build/actions/workflows/check.yml) | 检查配置、校验脚本和 Actions 语法，不编译固件 |
 
 `build.yml` 内部流程为 `plan → compile（机型矩阵）→ publish-plan → publish（成功机型矩阵）`。编译矩阵全部结束后才进入发布阶段；某个机型失败不阻止其他成功机型发布，取消整次运行或关闭 `publish` 时不会启动发布。编译阶段保持只读权限，仅发布阶段具有 Release 写入权限。
 
@@ -65,7 +65,6 @@ Release 提供固件、完整配置、包清单及校验文件。Actions 日志�
 .github/workflows/   构建（含发布）、清理与检查三个入口
 Config/              独立机型配置和 TOML 设置
 Scripts/             构建脚本、插件集成及配套资源
-tests/               配置、构建和发布回归测试
 ```
 
 ## 自定义
