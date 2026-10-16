@@ -33,7 +33,6 @@
 | 界面 | shadcn · 简体中文 |
 | 时区 | Asia/Shanghai |
 
-BE6500、BE12 Pro、S20P MT76、7DR7299 MT76 默认启用上游 BBR、`fq` 和 `net.ipv4.tcp_mtu_probing=1`。模块自动加载后，由开机 sysctl 服务在网络服务启动前读取 `/etc/sysctl.d/11-project-network.conf`，不依赖首次启动脚本。后置 sysctl 文件及 `/etc/sysctl.conf` 可覆盖这些默认值；不修改硬件卸载、QoS、接口 MTU、TFO 或 backlog。BBR 主要影响路由器本机 TCP 发送，不会替换普通转发连接两端的拥塞控制算法。闭源 MTK 与 x86 保持原有策略。
 
 ## 构建与发布
 
@@ -47,7 +46,6 @@ BE6500、BE12 Pro、S20P MT76、7DR7299 MT76 默认启用上游 BBR、`fq` 和 `
 | 升级页面 | 恢复出厂 / 不保留配置升级后重连默认管理 IP；保留配置升级仍沿用当前地址 |
 | 自动清理 | 构建与发布流程结束后自动执行，每日北京时间 **02:30** 兜底；每机型保留 1 个正式 Release，缓存按组 / 机型及类型保留 1 代 |
 
-Release 提供固件、完整配置、包清单及校验文件。Actions 日志与附件保留 14 天。不再提供独立补发工作流或自动补发；若仅发布失败，可在原构建记录中使用 GitHub 的 **Re-run failed jobs**，无需重新编译已成功的机型。
 
 ### 工作流
 
@@ -57,7 +55,6 @@ Release 提供固件、完整配置、包清单及校验文件。Actions 日志�
 | [Clean old releases and caches](https://github.com/WoChen5770/openwrt_build/actions/workflows/cleanup.yml) | 清理本项目可识别的旧 Release / 标签和缓存；支持手动预览 |
 | [Repository checks](https://github.com/WoChen5770/openwrt_build/actions/workflows/check.yml) | 检查配置、校验脚本和 Actions 语法，不编译固件 |
 
-`build.yml` 内部流程为 `plan → compile（机型矩阵）→ publish-plan → publish（成功机型矩阵）`。编译矩阵全部结束后才进入发布阶段；某个机型失败不阻止其他成功机型发布，取消整次运行或关闭 `publish` 时不会启动发布。编译阶段保持只读权限，仅发布阶段具有 Release 写入权限。
 
 ## 目录结构
 
