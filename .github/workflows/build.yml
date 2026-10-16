@@ -88,7 +88,8 @@ jobs:
         shell: bash
     env:
       SOURCE_DIR: ${{ github.workspace }}/openwrt
-      CCACHE_MAXSIZE: 1G
+      # 0 means "no limit": measure how large the cache actually grows before setting a cap.
+      CCACHE_MAXSIZE: 0
       CCACHE_COMPILERCHECK: content
       # PROFILE is an upstream Make variable; do not export our CI id under it.
       FIRMWARE_PROFILE: ${{ matrix.profile }}
@@ -135,6 +136,7 @@ jobs:
           mkdir -p "$CCACHE_DIR"
           ccache --max-size="$CCACHE_MAXSIZE"
           ccache --zero-stats
+          ccache -p | grep -E 'max_size|max_files|compression' || true
       - name: Integrate plugins and verify defconfig
         run: |
           set -euo pipefail
