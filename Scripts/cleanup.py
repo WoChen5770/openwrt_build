@@ -49,8 +49,10 @@ def release_candidates(releases, profiles, values, now):
 
 def cache_candidates(caches, profiles, values, now):
     groups = defaultdict(list)
-    compiler_groups = {ccache_group(name, profiles[name] if isinstance(profiles, dict) else {})
-                       for name in profiles}
+    profile_groups = {name: ccache_group(name, profiles[name] if isinstance(profiles, dict) else {})
+                      for name in profiles}
+    compiler_groups = set(profile_groups.values())
+    installed = re.compile(r'^(toolchain|hostpkg)-v2-Linux-ubuntu24-([a-z0-9-]+)-[0-9a-f]{24}$')
     for cache in caches:
         if cache.get('size_in_bytes', 1) <= 0:
             continue
@@ -60,12 +62,20 @@ def cache_candidates(caches, profiles, values, now):
         if shared:
             groups[(shared, 'ccache-v2', cache['ref'])].append(cache)
             continue
+        match = installed.fullmatch(cache['key'])
+        if match:
+            kind, owner = match.groups()
+            if kind == 'toolchain':
+                owner = profile_groups.get(owner, owner if owner in compiler_groups else None)
+            elif owner not in profiles:
+                owner = None
+            if owner:
+                groups[(owner, kind, cache['ref'])].append(cache)
+                continue
         for profile in sorted(profiles, key=len, reverse=True):
             patterns = (
                 ('firmware', r'firmware-Linux-' + re.escape(profile) + r'-[0-9a-f]{64}-[0-9]+-[0-9]+'),
-                ('toolchain', r'toolchain-v1-Linux-ubuntu24-' + re.escape(profile) + r'-[0-9a-f]{24}-[0-9a-f]{40}-[0-9]+-[0-9]+'),
-                ('toolchain-v2', r'toolchain-v2-Linux-ubuntu24-' + re.escape(profile) + r'-[0-9a-f]{24}'),
-                ('hostpkg-v2', r'hostpkg-v2-Linux-ubuntu24-' + re.escape(profile) + r'-[0-9a-f]{24}'),
+                ('toolchain-v1', r'toolchain-v1-Linux-ubuntu24-' + re.escape(profile) + r'-[0-9a-f]{24}-[0-9a-f]{40}-[0-9]+-[0-9]+'),
             )
             kind = next((kind for kind, pattern in patterns if re.fullmatch(pattern, cache['key'])), None)
             if kind:
@@ -75,7 +85,7 @@ def cache_candidates(caches, profiles, values, now):
     result = []
     for (_, kind, _), items in groups.items():
         # Stable installed caches can be reused after switching back to an older configuration.
-        field = 'last_accessed_at' if kind in ('toolchain-v2', 'hostpkg-v2') else 'created_at'
+        field = 'last_accessed_at' if kind in ('toolchain', 'hostpkg') else 'created_at'
         items.sort(key=lambda c: (timestamp(c[field]), timestamp(c['created_at']), c['id']), reverse=True)
         result.extend(c for c in items[values['cache_keep_generations']:]
                       if values['cache_min_age_days'] == 0

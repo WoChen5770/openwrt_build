@@ -40,7 +40,7 @@
 | :--- | :--- |
 | 手动构建 | [Run workflow](https://github.com/WoChen5770/openwrt_build/actions/workflows/build.yml) · 单机型或 `all` 并行 |
 | 自动构建 | 每日北京时间 **04:15** 检查主源码或本仓库配置/脚本，有更新才构建 |
-| 缓存加速 | 分组 ccache · 精确匹配的 host / 工具链及独立 hostpkg 缓存；下载文件不缓存 |
+| 缓存加速 | 按兼容组共享 ccache 与 host / 工具链，机型独立 hostpkg；下载文件不缓存 |
 | 固件发布 | 同一工作流内默认发布成功机型的 Release；可通过 `publish=false` 关闭 |
 | 版本标识 | LuCI 固件版本显示仓库所有者、北京时间（编译开始）；镜像文件名带机型、同一时间和运行编号 |
 | 升级页面 | 恢复出厂 / 不保留配置升级后重连默认管理 IP；保留配置升级仍沿用当前地址 |
@@ -84,9 +84,9 @@ Scripts/             构建脚本、插件集成及配套资源
 | `packages` | 本次构建追加选包，优先级高于配置文件；只能填写 `CONFIG_PACKAGE_name=y/m/n` |
 | `Config/PRIVATE.txt` | 可选的最后一层配置，应用到所选机型（`all` 时是全部机型） |
 | `Scripts/PRIVATE.sh` | 可选 Bash 钩子，在锁定插件集成之后、默认设置 / QModem 清理之前执行；工作目录为 OpenWrt 源码根目录 |
-| ccache | 单份上限保持 `1G`；严格校验编译器内容，命中统计见 `logs/ccache.log` |
+| ccache | 暂不设容量上限；严格校验编译器内容，命中统计见 `logs/ccache.log` 与 Actions Summary |
 | 下载文件 | 不缓存 `dl`；每次构建通过 `make download` 并行下载，日志见 `logs/download.log` |
-| host / 工具链缓存 | 按机型、最终配置、相关源码与 runner 环境精确匹配；命中后不重复上传 |
+| host / 工具链缓存 | 同一源码、target / subtarget 的机型共享；指纹只包含工具链相关源码和配置 |
 | hostpkg 缓存 | 独立保存软件包宿主工具，额外校验 feeds、插件、配置与集成脚本 |
 | 7DR7299 MTK 的 Go | 仅 dae / daed 使用锁定的独立 Go 1.27 工具链；其他软件包继续使用上游 Go |
 | MTK 服务 | 不集成 Mesh；daed / honk 已集成，默认不启用 |

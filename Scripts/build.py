@@ -234,10 +234,32 @@ def config_marker(values):
 
 
 def ccache_group(name, profile):
+    # The same compatibility group also identifies the shared toolchain cache.
     group = profile.get("ccache_group", name)
     if not isinstance(group, str) or not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", group):
         raise ValueError("Invalid ccache group: " + name)
     return group
+
+
+TOOLCHAIN_CONFIG_PREFIXES = (
+    "TARGET_", "GCC_", "BINUTILS_", "LIBC_", "MUSL_", "UCLIBC_", "GLIBC_",
+    "USE_", "TOOLCHAIN_", "ARCH_", "CPU_", "LINUX_",
+    "KERNEL_GIT_", "EXTERNAL_KERNEL_TREE", "EXTERNAL_TOOLCHAIN",
+    "SOFT_FLOAT", "HAS_FPU",
+)
+TOOLCHAIN_CONFIG_EXCLUDES = (
+    "TARGET_DEVICE", "TARGET_PROFILE", "TARGET_ALL_PROFILES",
+    "TARGET_MULTI_PROFILE", "TARGET_PER_DEVICE", "TARGET_ROOTFS",
+    "TARGET_IMAGES", "TARGET_INITRAMFS", "TARGET_KERNEL",
+)
+
+
+def toolchain_config(values):
+    """Keep only settings that can affect host tools or the target toolchain."""
+    return {key: value for key, value in values.items()
+            if key.startswith(TOOLCHAIN_CONFIG_PREFIXES)
+            and not key.startswith(TOOLCHAIN_CONFIG_EXCLUDES)
+            and "_DEVICE_" not in key}
 
 
 def assign_cache_writers(matrix, profiles):
@@ -250,9 +272,22 @@ def assign_cache_writers(matrix, profiles):
         priority = profile.get("ccache_priority", 0)
         if type(priority) is not int or priority < 0:
             raise ValueError("Invalid ccache writer priority: " + name)
+    active_groups = {ccache_group(item["profile"], profiles[item["profile"]]) for item in matrix}
+    foundations = {}
+    for name, profile in profiles.items():
+        group = ccache_group(name, profile)
+        if group not in active_groups:
+            continue
+        selected = toolchain_config(config_for(profile))
+        if not selected:
+            raise ValueError("No toolchain configuration for cache group: " + group)
+        previous = foundations.setdefault(group, selected)
+        if previous != selected:
+            raise ValueError("A toolchain group must use the same toolchain configuration: " + group)
     for item in matrix:
         name = item["profile"]
         item["ccache_group"] = group = ccache_group(name, profiles[name])
+        item["toolchain_group"] = group
         rank = (profiles[name].get("ccache_priority", 0), name)
         writers[group] = max(writers.get(group, rank), rank)
     for item in matrix:
@@ -635,7 +670,7 @@ def customize_luci(tree, values, identity):
 def cache_source_inputs(tree, paths):
     # Hash tracked contents, including local patches, but not generated conf/.o files.
     files = run("git", "ls-files", "--stage", "-z", "--", *paths, cwd=tree).split("\0")
-    digest, symbols = hashlib.sha256(), set()
+    digest = hashlib.sha256()
     for entry in sorted(filter(None, files)):
         _, name = entry.split("\t", 1)
         path = tree / name
@@ -649,35 +684,77 @@ def cache_source_inputs(tree, paths):
             continue
         content = path.read_bytes()
         digest.update(str(path.stat().st_mode & 0o111).encode() + b"\0" + content + b"\0")
-        symbols.update(re.findall(r"CONFIG_([A-Za-z0-9_]+)", content.decode(errors="replace")))
     if not any(files):
         raise ValueError("No tracked source files for cache fingerprint")
-    return digest.hexdigest(), symbols
+    return digest.hexdigest()
+
+
+def kernel_patchver(tree, target, subtarget):
+    for relative in (target + "/Makefile", target + "/" + subtarget + "/target.mk"):
+        path = tree / relative
+        if not path.is_file():
+            continue
+        for line in path.read_text().splitlines():
+            match = re.match(r"\s*KERNEL_PATCHVER\s*(?:\?|:)?=\s*([0-9]+(?:\.[0-9]+)+)\s*$",
+                             line.split("#", 1)[0])
+            if match:
+                return match.group(1)
+    return None
+
+
+def toolchain_source_paths(tree, target, subtarget):
+    paths = ["tools", "toolchain", "include", "config", "scripts", "Makefile", "rules.mk",
+             "target/linux/Makefile", target + "/Makefile", target + "/" + subtarget + "/target.mk"]
+    generic = "target/linux/generic"
+    patchver = kernel_patchver(tree, target, subtarget)
+    if not patchver:
+        return paths + [generic]
+    paths += [generic + "/Makefile", generic + "/kernel-" + patchver,
+              generic + "/config-" + patchver, generic + "/config-default", generic + "/config-filter"]
+    for name in ("backport", "pending", "hack"):
+        versioned = generic + "/" + name + "-" + patchver
+        paths.append(versioned if (tree / versioned).is_dir() else generic + "/" + name)
+    for name in ("files", "files-" + patchver):
+        path = generic + "/" + name
+        if (tree / path).is_dir():
+            paths.append(path)
+    return paths
 
 
 def cache_keys(lock, tree, host):
     values = merge_config([(tree / ".config").read_text()])
     if not values:
         raise ValueError("Cache planning requires the expanded build configuration")
-    paths = ["tools", "toolchain", "include", "config", "scripts", "Makefile", "rules.mk",
-             "target/linux/generic", "target/linux/" + lock["profile"]["target"]]
-    source_hash, symbols = cache_source_inputs(tree, paths)
-    # A dynamic CONFIG_PACKAGE_ reference conservatively includes that whole family.
-    selected = {key: value for key, value in values.items()
-                if not key.startswith("PACKAGE_") or key in symbols or "PACKAGE_" in symbols}
-    foundation = dict(source={k: lock["source"][k] for k in ("repository", "branch")},
-                      config=selected, source_hash=source_hash, host=host, directory=str(tree.resolve()))
+    profile = lock["profile"]
+    group = ccache_group(lock["profile_id"], profile)
+    target = "target/linux/" + profile["target"]
+    platform_files = (target + "/Makefile", target + "/" + profile["subtarget"] + "/target.mk")
+    missing = [path for path in platform_files if not (tree / path).is_file()]
+    if missing:
+        raise ValueError("Toolchain cache input is missing: " + ", ".join(missing))
+    selected = toolchain_config(lock["config"])
+    if not selected:
+        raise ValueError("Toolchain cache planning found no target/toolchain configuration")
+    # Toolchain kernel headers use their own patches; device DTS, image and kernel
+    # configuration changes must not invalidate the shared toolchain cache.
+    paths = toolchain_source_paths(tree, target, profile["subtarget"])
+    source_hash = cache_source_inputs(tree, paths)
+    foundation = dict(cache_group=group,
+                      source={k: lock["source"][k] for k in ("repository", "branch")},
+                      platform=tuple(profile[key] for key in ("target", "subtarget")),
+                      config=selected, source_hash=source_hash,
+                      host=host, directory=str(tree.resolve()))
     def digest(value):
         return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()[:24]
-    base = "-v2-Linux-ubuntu24-" + lock["profile_id"] + "-"
-    toolchain_key = "toolchain" + base + digest(foundation)
+    toolchain_key = "toolchain-v2-Linux-ubuntu24-" + group + "-" + digest(foundation)
     # Package host tools retain their feed, overlay, configuration and recipe guards.
     scripts = {str(path.relative_to(ROOT)): hashlib.sha256(path.read_bytes()).hexdigest()
                for path in sorted((ROOT / "Scripts").rglob("*"))
                if path.is_file() and "__pycache__" not in path.parts and path.suffix != ".pyc"}
     packages = dict(toolchain_key=toolchain_key, feeds=lock["source"]["feeds"], packages=lock["packages"],
                     config=values, recipes=run("git", "rev-parse", "HEAD:package", cwd=tree), scripts=scripts)
-    return dict(toolchain_key=toolchain_key, hostpkg_key="hostpkg" + base + digest(packages))
+    hostpkg_key = "hostpkg-v2-Linux-ubuntu24-" + lock["profile_id"] + "-" + digest(packages)
+    return dict(toolchain_key=toolchain_key, hostpkg_key=hostpkg_key)
 
 
 def cache_plan(args):
@@ -686,9 +763,10 @@ def cache_plan(args):
     enabled = not (ROOT / "Scripts/PRIVATE.sh").is_file()
     keys = dict(toolchain_key="", hostpkg_key="")
     if enabled:
+        installed = run("dpkg-query", "-W", "-f=${Package}=${Version}\n")
         host = dict(image=os.environ.get("ImageVersion", "unknown"), compiler=run("gcc", "--version"),
                     linker=run("ld", "--version"),
-                    packages=run("dpkg-query", "-W", "-f=${Package}=${Version}\n"),
+                    packages="\n".join(sorted(installed.splitlines())),
                     dependencies=hashlib.sha256((ROOT / "Scripts/install-dependencies.sh").read_bytes()).hexdigest())
         keys = cache_keys(lock, tree, host)
     result = dict(**keys, enabled=str(enabled).lower())

@@ -88,7 +88,7 @@ jobs:
         shell: bash
     env:
       SOURCE_DIR: ${{ github.workspace }}/openwrt
-      # 0 means "no limit": measure how large the cache actually grows before setting a cap.
+      # Keep the ccache unbounded for now; hit rate and local sizes are reported below.
       CCACHE_MAXSIZE: 0
       CCACHE_COMPILERCHECK: content
       # PROFILE is an upstream Make variable; do not export our CI id under it.
@@ -217,6 +217,9 @@ jobs:
           key: ${{ steps.cache-plan.outputs.hostpkg_key }}
       - name: Save configuration diagnostics
         if: always()
+        env:
+          TOOLCHAIN_CACHE_HIT: ${{ steps.toolchain-cache.outputs.cache-hit }}
+          HOSTPKG_CACHE_HIT: ${{ steps.hostpkg-cache.outputs.cache-hit }}
         run: |
           mkdir -p logs
           if [[ -f "$SOURCE_DIR/.config" ]]; then cp "$SOURCE_DIR/.config" logs/config.full; fi
@@ -225,6 +228,15 @@ jobs:
             CCACHE_DIR="$SOURCE_DIR/.ccache" ccache --show-stats 2>&1 | tee logs/ccache.log
           fi
           du -sh "$SOURCE_DIR/.ccache" "$SOURCE_DIR/staging_dir/host" "$SOURCE_DIR/staging_dir/hostpkg" "$SOURCE_DIR"/staging_dir/toolchain-* > logs/cache-sizes.log 2>/dev/null || true
+          {
+            echo '### Cache diagnostics'
+            echo '```text'
+            echo "toolchain cache hit: ${TOOLCHAIN_CACHE_HIT:-not-run}"
+            echo "hostpkg cache hit: ${HOSTPKG_CACHE_HIT:-not-run}"
+            if [[ -s logs/ccache.log ]]; then cat logs/ccache.log; fi
+            if [[ -s logs/cache-sizes.log ]]; then cat logs/cache-sizes.log; fi
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
