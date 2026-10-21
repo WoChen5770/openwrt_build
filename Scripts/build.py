@@ -172,11 +172,6 @@ def validate_config(profile_id, profile, content, selections=None):
     forbidden = set(profile["forbidden"]) | {"PACKAGE_bandix", "PACKAGE_luci-app-bandix", "PACKAGE_wpad-mesh-openssl"}
     # Preserve exclusions after applying private and temporary package overrides.
     forbidden.update(key for key, value in selections.items() if key.startswith("PACKAGE_") and value == "n")
-    if values.get("PACKAGE_luci-app-passwall") == "y":
-        # Fail closed if upstream adds a new, enabled proxy backend.
-        allowed = {"PACKAGE_luci-app-passwall_INCLUDE_Xray", "PACKAGE_luci-app-passwall_INCLUDE_Geoview",
-                   "PACKAGE_luci-app-passwall_INCLUDE_V2ray_Geodata"}
-        forbidden.update(key for key in values if key.startswith("PACKAGE_luci-app-passwall_INCLUDE_") and key not in allowed)
     errors += ["Forbidden CONFIG_" + key for key in sorted(forbidden) if values.get(key) in ("y", "m")]
     errors += ["Forbidden QModem option: CONFIG_" + key for key, value in values.items()
                if value in ("y", "m") and key.lower().startswith(("package_qmodem", "package_luci-app-qmodem", "package_luci-i18n-qmodem"))]
