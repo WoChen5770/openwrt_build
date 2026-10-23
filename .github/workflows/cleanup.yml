@@ -1,4 +1,4 @@
-name: Clean old releases and caches
+name: Clean old releases, caches and workflow runs
 
 on:
   workflow_run:
@@ -33,7 +33,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
-      - name: Clean only recognized project releases and caches
+      - name: Clean only recognized project releases, caches and workflow runs
         env:
           GH_TOKEN: ${{ github.token }}
           APPLY: ${{ github.event_name == 'workflow_run' || github.event_name == 'schedule' || inputs.dry_run == false }}

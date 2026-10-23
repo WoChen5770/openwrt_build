@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Conservative retention for this project's releases and build caches only."""
+"""Conservative retention for this project's releases, caches and workflow runs."""
 import argparse
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
@@ -20,10 +20,11 @@ def timestamp(value):
 
 def settings():
     values = read_toml(ROOT / 'Config/build-settings.toml')
-    for key in ('releases_keep_per_profile', 'cache_keep_generations'):
+    for key in ('releases_keep_per_profile', 'cache_keep_generations',
+                'workflow_runs_keep_per_workflow'):
         if type(values[key]) is not int or values[key] < 1:
             raise ValueError('Retention must be a positive integer: ' + key)
-    for key in ('release_recovery_days', 'cache_min_age_days'):
+    for key in ('release_recovery_days', 'cache_min_age_days', 'workflow_runs_min_age_days'):
         if type(values[key]) is not int or values[key] < 0:
             raise ValueError('Retention must be a non-negative integer: ' + key)
     return values
@@ -93,6 +94,21 @@ def cache_candidates(caches, profiles, values, now):
     return result
 
 
+def workflow_run_candidates(runs, values, now):
+    groups = defaultdict(list)
+    for workflow_run in runs:
+        if workflow_run.get('status') == 'completed':
+            groups[workflow_run['workflow_id']].append(workflow_run)
+    cutoff = now - timedelta(days=values['workflow_runs_min_age_days'])
+    result = []
+    for items in groups.values():
+        items.sort(key=lambda r: (timestamp(r['created_at']), r['id']), reverse=True)
+        result.extend(r for r in items[values['workflow_runs_keep_per_workflow']:]
+                      if values['workflow_runs_min_age_days'] == 0
+                      or timestamp(r['created_at']) < cutoff)
+    return result
+
+
 def api(endpoint, paginate=False):
     args = ['gh', 'api', endpoint]
     if paginate:
@@ -124,6 +140,8 @@ def main():
     now = datetime.now(timezone.utc)
     releases = [r for page in api(base + '/releases?per_page=100', True) for r in page]
     caches = [c for page in api(base + '/actions/caches?per_page=100', True) for c in page['actions_caches']]
+    workflow_runs = [r for page in api(base + '/actions/runs?per_page=100', True)
+                     for r in page['workflow_runs']]
     for release in release_candidates(releases, profiles, values, now):
         print('Delete release and its exact tag: ' + release['tag_name'])
         if args.apply:
@@ -132,6 +150,11 @@ def main():
         print('Delete cache: ' + str(cache['id']) + ' ' + cache['key'])
         if args.apply:
             subprocess.run(['gh', 'api', '--method', 'DELETE', base + '/actions/caches/' + str(cache['id'])], check=True)
+    for workflow_run in workflow_run_candidates(workflow_runs, values, now):
+        print('Delete workflow run: ' + str(workflow_run['id']) + ' ' + workflow_run['path'])
+        if args.apply:
+            subprocess.run(['gh', 'api', '--method', 'DELETE',
+                            base + '/actions/runs/' + str(workflow_run['id'])], check=True)
     if not args.apply:
         print('Dry run: nothing deleted')
 
