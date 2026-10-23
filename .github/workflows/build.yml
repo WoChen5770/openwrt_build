@@ -1,4 +1,5 @@
 name: Build firmware
+run-name: Build firmware / ${{ inputs.profile || 'all' }} / ${{ inputs.kernel_compression || 'profile' }}
 
 on:
   workflow_dispatch:
@@ -12,6 +13,11 @@ on:
         description: 可选上游完整提交 SHA（仅单机型）
         type: string
         default: ''
+      kernel_compression:
+        description: 赵云内核压缩（profile 使用机型默认；仅赵云可覆盖）
+        type: choice
+        default: profile
+        options: [profile, lzma, gzip]
       packages:
         description: 临时选包（CONFIG_PACKAGE_name=y/m/n，多行或用字面量 \n 分隔）
         type: string
@@ -50,11 +56,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PROFILE: ${{ inputs.profile || 'all' }}
           SOURCE_COMMIT: ${{ inputs.source_commit }}
+          KERNEL_COMPRESSION: ${{ inputs.kernel_compression || 'profile' }}
           FORCE: ${{ inputs.force }}
           EVENT_NAME: ${{ github.event_name }}
           PACKAGES: ${{ inputs.packages }}
         run: |
-          args=(--profile "$PROFILE" --event "$EVENT_NAME" --packages "$PACKAGES" --github-output "$GITHUB_OUTPUT")
+          args=(--profile "$PROFILE" --event "$EVENT_NAME" --packages "$PACKAGES" --kernel-compression "$KERNEL_COMPRESSION" --github-output "$GITHUB_OUTPUT")
           if [[ -n "$SOURCE_COMMIT" ]]; then args+=(--commit "$SOURCE_COMMIT"); fi
           if [[ "$FORCE" == true ]]; then args+=(--force); fi
           python3 Scripts/build.py plan "${args[@]}"
@@ -68,7 +75,7 @@ jobs:
           retention-days: 14
           if-no-files-found: error
   compile:
-    name: ${{ matrix.profile }} / compile
+    name: ${{ matrix.profile }} / ${{ matrix.kernel_compression }} / compile
     needs: plan
     if: needs.plan.outputs.has_builds == 'true'
     runs-on: ubuntu-24.04
@@ -81,7 +88,7 @@ jobs:
       max-parallel: ${{ fromJSON(needs.plan.outputs.max_parallel) }}
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     concurrency:
-      group: firmware-${{ matrix.profile }}
+      group: ${{ matrix.concurrency_group }}
       cancel-in-progress: false
     defaults:
       run:
@@ -223,6 +230,18 @@ jobs:
         run: |
           mkdir -p logs
           if [[ -f "$SOURCE_DIR/.config" ]]; then cp "$SOURCE_DIR/.config" logs/config.full; fi
+          shopt -s nullglob
+          for kernel in "$SOURCE_DIR"/build_dir/target-*/linux-*/linux-*; do
+            [[ -f "$kernel/.config" ]] || continue
+            label="$(basename "$(dirname "$kernel")")-$(basename "$kernel")"
+            cp "$kernel/.config" "logs/kernel-config-$label"
+            if [[ -f "$kernel/vmlinux" ]]; then
+              readelf -SW "$kernel/vmlinux" > "logs/kernel-sections-$label.log" 2>&1 || true
+            fi
+          done
+          if [[ -d "$SOURCE_DIR/build_dir" ]]; then
+            find "$SOURCE_DIR/build_dir" -type f \( -name vmlinux -o -name 'Image*' -o -name '*.itb' -o -name '*.dtb' \) -printf '%s %P\n' | sort -k2 > logs/kernel-sizes.log
+          fi
           if [[ -d "$SOURCE_DIR/logs" ]]; then cp -R "$SOURCE_DIR/logs" logs/upstream; fi
           if [[ -d "$SOURCE_DIR/.ccache" ]]; then
             CCACHE_DIR="$SOURCE_DIR/.ccache" ccache --show-stats 2>&1 | tee logs/ccache.log

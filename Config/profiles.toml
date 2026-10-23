@@ -370,6 +370,7 @@ network_tuning = true
 config = "Config/JDCLOUD-RE-CS-06.txt"
 
 # 保留 7 MiB 内核区域，用 LZMA 压缩容纳 BTF
+kernel_compression = "lzma"
 patches = ["Scripts/Patches/jdcloud-re-cs-06-lzma-kernel.patch"]
 
 # eMMC 驱动由 qualcommbe 内核内置，无需 kmod-mmc

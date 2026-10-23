@@ -4,11 +4,12 @@ from pathlib import Path
 import subprocess
 import tarfile
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
 from Scripts.build import (
-    ROOT, apply_source_patches, defaults, merge_config, read_toml, release_notes,
+    ROOT, apply_source_patches, compression_profile, defaults, merge_config, plan, read_json, read_toml, release_notes,
     validate_config, validate_image_packages, validate_jdcloud_sysupgrade,
 )
 
@@ -64,12 +65,35 @@ class JDCloudRECS06Tests(unittest.TestCase):
 
     def test_s20p_plugin_selections_preserved(self):
         reference = merge_config([(ROOT / self.profiles["s20p-mt76"]["config"]).read_text()])
-        hardware = {"PACKAGE_kmod-mt7915e", "PACKAGE_kmod-mt7986-firmware", "PACKAGE_kmod-mmc"}
+        plugins = {"adguardhome", "daed", "honk", "easytier", "xray-core", "v2ray-geoip", "v2ray-geosite",
+                   "dawn", "umdns", "batctl-default", "wpad-openssl", "kmod-batman-adv", "MAC80211_MESH"}
         for key, value in reference.items():
-            if key.startswith("PACKAGE_") and key not in hardware:
+            if key.startswith("PACKAGE_luci") or key.removeprefix("PACKAGE_") in plugins or "_INCLUDE_" in key:
                 self.assertEqual(self.values.get(key), value, key)
         for key in ("KERNEL_DEBUG_INFO_BTF", "DAED_USE_KERNEL_BTF", "BPF_TOOLCHAIN_HOST"):
             self.assertEqual(self.values[key], "y")
+
+    def test_unneeded_explicit_packages_pruned(self):
+        removed = {"kmod-ata-ahci", "kmod-ata-core", "kmod-nvme", "nvme-cli", "libnvme", "kmod-usb-audio",
+                   "kmod-sound-core", "kmod-usb-ehci", "kmod-usb-ohci", "kmod-usb-uhci", "kmod-fs-ksmbd",
+                   "kmod-ovpn-backports", "kmod-bonding", "proto-bonding", "kmod-cryptodev", "kmod-tls",
+                   "kmod-mtd-rw", "nand-utils", "kmod-wireguard", "usbmuxd", "libimobiledevice",
+                   "usb-modeswitch", "kmod-fs-btrfs", "kmod-fuse", "kmod-dummy", "kmod-inet-mptcp-diag",
+                   "cfdisk", "cgdisk", "gdisk", "sfdisk", "sgdisk", "smartmontools", "smartmontools-drivedb", "coremark"}
+        reference = merge_config([(ROOT / self.profiles["s20p-mt76"]["config"]).read_text()])
+        removed |= {key.removeprefix("PACKAGE_") for key in reference if key.startswith("PACKAGE_kmod-usb-net")}
+        self.assertEqual(len(removed), 48)
+        for name in removed:
+            self.assertNotIn("PACKAGE_" + name, self.values, name)
+
+    def test_proxy_and_storage_dependencies_preserved(self):
+        for name in ("kmod-nft-queue", "kmod-nft-socket", "kmod-nft-tproxy", "kmod-nft-nat", "kmod-tun",
+                     "kmod-veth", "kmod-sched", "kmod-tcp-bbr", "ip-full", "automount", "kmod-usb3",
+                     "kmod-usb-dwc3-qcom", "kmod-usb-storage", "kmod-usb-storage-extras", "kmod-usb-storage-uas",
+                     "fdisk", "lsblk", "mmc-utils", "exfat-fsck", "exfat-mkfs"):
+            self.assertEqual(self.values["PACKAGE_" + name], "y", name)
+        for key in ("KERNEL_BPF_EVENTS", "KERNEL_DEBUG_INFO", "KERNEL_DEBUG_INFO_BTF", "KERNEL_XDP_SOCKETS"):
+            self.assertEqual(self.values[key], "y", key)
 
     def test_plugin_sources_match_s20p(self):
         packages = read_toml(ROOT / "Config/packages.toml")
@@ -118,6 +142,8 @@ class JDCloudRECS06Tests(unittest.TestCase):
             image = tree / "target/linux/qualcommbe/image/ipq53xx.mk"
             image.parent.mkdir(parents=True)
             image.write_text(before)
+            apply_source_patches(tree, compression_profile(self.profile_id, self.profile, "gzip"))
+            self.assertEqual(image.read_text(), before)
             apply_source_patches(tree, self.profile)
             expected = before.replace("define Device/jdcloud_re-cs-06\n\t$(call Device/FitImage)",
                                       "define Device/jdcloud_re-cs-06\n\t$(call Device/FitImageLzma)")
@@ -154,15 +180,20 @@ class JDCloudRECS06Tests(unittest.TestCase):
                 validate_jdcloud_sysupgrade(image, tree)
                 self.assertEqual(listing.call_args.args[:2], (str(tree / "staging_dir/host/bin/mkimage"), "-l"))
             with patch("Scripts.build.run", return_value=FIT_LISTING.replace("lzma compressed", "gzip compressed")):
+                validate_jdcloud_sysupgrade(image, tree, "gzip")
                 with self.assertRaisesRegex(ValueError, "LZMA-compressed"):
                     validate_jdcloud_sysupgrade(image, tree)
+            with patch("Scripts.build.run", return_value=FIT_LISTING):
+                with self.assertRaisesRegex(ValueError, "GZIP-compressed"):
+                    validate_jdcloud_sysupgrade(image, tree, "gzip")
             with patch("Scripts.build.run", return_value="Compression: lzma compressed"):
                 with self.assertRaisesRegex(ValueError, "LZMA-compressed"):
                     validate_jdcloud_sysupgrade(image, tree)
             for size in (0, 7168 * 1024 + 1):
                 write_image(size)
-                with self.subTest(size=size), self.assertRaisesRegex(ValueError, "7 MiB"):
-                    validate_jdcloud_sysupgrade(image, tree)
+                for compression in ("lzma", "gzip"):
+                    with self.subTest(size=size, compression=compression), self.assertRaisesRegex(ValueError, "7 MiB"):
+                        validate_jdcloud_sysupgrade(image, tree, compression)
             for names in ((), ("a/kernel", "b/kernel")):
                 write_image(16, names)
                 with self.subTest(names=names), self.assertRaisesRegex(ValueError, "Expected one"):
@@ -176,6 +207,65 @@ class JDCloudRECS06Tests(unittest.TestCase):
         self.assertIn("LZMA/FIT", notes)
         self.assertIn("7 MiB", notes)
         self.assertIn("引导器", notes)
+        lock["profile"] = compression_profile(self.profile_id, self.profile, "gzip")
+        notes = release_notes(lock)
+        self.assertIn("GZIP/FIT", notes)
+        self.assertIn("7 MiB", notes)
+        self.assertNotIn("LZMA", notes)
+
+    def test_compression_overrides_are_scoped_and_nonmutating(self):
+        original = {**self.profile, "patches": list(self.profile["patches"])}
+        self.assertEqual(compression_profile(self.profile_id, self.profile), self.profile)
+        gzip = compression_profile(self.profile_id, self.profile, "gzip")
+        self.assertEqual(gzip["kernel_compression"], "gzip")
+        self.assertEqual(gzip["patches"], [])
+        restored = compression_profile(self.profile_id, gzip, "lzma")
+        self.assertEqual(restored, self.profile)
+        self.assertEqual(original, self.profile)
+        self.assertEqual(compression_profile(self.profile_id, self.profile, "lzma")["patches"], self.profile["patches"])
+        extra = {**self.profile, "patches": [*self.profile["patches"], "Scripts/Patches/other.patch"]}
+        self.assertEqual(compression_profile(self.profile_id, extra, "gzip")["patches"], ["Scripts/Patches/other.patch"])
+        for name in ("all", "s20p-mt76", "x86-64"):
+            with self.subTest(profile=name), self.assertRaisesRegex(ValueError, "requires jdcloud"):
+                compression_profile(name, self.profile, "gzip")
+        with self.assertRaisesRegex(ValueError, "Invalid kernel compression"):
+            compression_profile(self.profile_id, self.profile, "zstd")
+
+    def test_plan_locks_compression_and_separates_concurrency(self):
+        locks, matrices = {}, {}
+        with tempfile.TemporaryDirectory() as temporary, \
+                patch.dict(os.environ, {"GITHUB_REPOSITORY": "test/firmware"}), \
+                patch("Scripts.build.resolve", return_value="1" * 40), \
+                patch("Scripts.build.request", return_value=b""), \
+                patch("Scripts.build.ci_hash", return_value="test"), \
+                patch("Scripts.build.xray_lock", return_value={"commit": "2" * 40}):
+            for compression in ("profile", "lzma", "gzip"):
+                output = Path(temporary) / compression
+                args = SimpleNamespace(profile=self.profile_id, commit="1" * 40, packages="", event="workflow_dispatch",
+                                       force=True, output_dir=str(output), github_output=None, kernel_compression=compression)
+                plan(args)
+                locks[compression] = read_json(output / (self.profile_id + ".json"))
+                matrices[compression] = read_json(output / "matrix.json")["matrix"]["include"][0]
+            self.assertEqual(locks["profile"], locks["lzma"])
+            self.assertNotEqual(locks["lzma"]["fingerprint"], locks["gzip"]["fingerprint"])
+            self.assertNotEqual(matrices["lzma"]["concurrency_group"], matrices["gzip"]["concurrency_group"])
+            for compression in ("lzma", "gzip"):
+                self.assertEqual(locks[compression]["profile"]["kernel_compression"], compression)
+                self.assertEqual(matrices[compression]["kernel_compression"], compression)
+            for key in ("source", "packages", "xray", "config", "defaults"):
+                self.assertEqual(locks["lzma"][key], locks["gzip"][key], key)
+            args.profile = "xiaomi-be6500"
+            args.kernel_compression = "profile"
+            plan(args)
+            matrix = read_json(output / "matrix.json")["matrix"]["include"][0]
+            self.assertEqual(matrix["concurrency_group"], "firmware-xiaomi-be6500")
+            self.assertEqual(matrix["kernel_compression"], "default")
+            for name in ("all", "s20p-mt76"):
+                args.profile = name
+                args.commit = None
+                args.kernel_compression = "gzip"
+                with self.subTest(profile=name), self.assertRaisesRegex(ValueError, "requires jdcloud"):
+                    plan(args)
 
 
 if __name__ == "__main__":
