@@ -1,9 +1,9 @@
 #!/bin/bash
-# S20P MT76 / BE12 Pro / BE6500: fetch xxosdev/luci-app-mesh without changing its runtime defaults.
+# Supported open-driver profiles: fetch Mesh without changing its runtime defaults.
 set -euo pipefail
 
 case "${WRT_CONFIG:-}" in
-	SUPERGATEWAY-S20P-MT76|TENDA-BE12-PRO|XIAOMI-BE6500|TPLINK-7DR7299-MT76) ;;
+	SUPERGATEWAY-S20P-MT76|TENDA-BE12-PRO|XIAOMI-BE6500|TPLINK-7DR7299-MT76|JDCLOUD-RE-CS-06) ;;
 	*) exit 0 ;;
 esac
 

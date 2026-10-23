@@ -353,6 +353,54 @@ required_image_packages = [
 # 禁用配置
 forbidden = ["PACKAGE_kmod-mt_wifi"]
 
+# 京东云无线宝赵云
+[profiles.jdcloud-re-cs-06]
+display_name = "京东云无线宝赵云 · JDCloud RE-CS-06"
+source = "viking"
+target = "qualcommbe"
+subtarget = "ipq53xx"
+device = "jdcloud_re-cs-06"
+image_match = "jdcloud_re-cs-06"
+variant = "ath12k"
+legacy_name = "JDCLOUD-RE-CS-06"
+hostname = "JDCLOUD-RE-CS-06"
+network_tuning = true
+
+# 完整机型配置；第三方插件与 S20P MT76 对齐
+config = "Config/JDCLOUD-RE-CS-06.txt"
+
+# eMMC 驱动由 qualcommbe 内核内置，无需 kmod-mmc
+required = [
+  "PACKAGE_kmod-ath12k",
+  "PACKAGE_kmod-qcom-ppe",
+  "PACKAGE_ipq-wifi-jdcloud_re-cs-06",
+  "PACKAGE_ath12k-firmware-ipq5332-ddwrt",
+  "PACKAGE_ath12k-firmware-qcn9274-ddwrt",
+  "PACKAGE_kmod-usb3",
+  "PACKAGE_kmod-usb-dwc3-qcom",
+  "PACKAGE_automount",
+  "PACKAGE_kmod-tcp-bbr",
+  "PACKAGE_kmod-sched",
+]
+
+# 固件必需包
+required_image_packages = [
+  "kmod-ath12k",
+  "kmod-qcom-ppe",
+  "ipq-wifi-jdcloud_re-cs-06",
+  "ath12k-firmware-ipq5332-ddwrt",
+  "ath12k-firmware-qcn9274-ddwrt",
+  "kmod-usb3",
+  "kmod-usb-dwc3-qcom",
+  "automount",
+  "kmod-tcp-bbr",
+  "kmod-sched",
+]
+
+# 不混入 S20P 的 MediaTek 无线驱动
+forbidden = ["PACKAGE_kmod-mt_wifi", "PACKAGE_kmod-mt7915e", "PACKAGE_kmod-mt7986-firmware"]
+forbidden_image_packages = ["kmod-mt_wifi", "kmod-mt7915e", "kmod-mt7986-firmware"]
+
 # x86 软路由
 [profiles.x86-64]
 display_name = "x86-64"
