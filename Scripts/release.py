@@ -44,7 +44,10 @@ def latest_jobs(repository, run):
     latest = {}
     for page in pages:
         for job in page['jobs']:
-            match = re.fullmatch(r'([a-z0-9-]+) / (compile|publish)(?: / \2)?', job['name'])
+            # Matrix display names may include the kernel compression variant.
+            match = re.fullmatch(
+                r'([a-z0-9-]+)(?: / [a-z0-9-]+)? / (compile|publish)(?: / \2)?',
+                job['name'])
             if not match:
                 match = re.match(r'^build \(([^,]+),.*? / (compile|publish)(?: / \2)?$', job['name'])
             if not match:

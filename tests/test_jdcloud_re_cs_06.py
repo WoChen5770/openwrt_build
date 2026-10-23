@@ -12,6 +12,7 @@ from Scripts.build import (
     ROOT, apply_source_patches, compression_profile, defaults, merge_config, plan, read_json, read_toml, release_notes,
     validate_config, validate_image_packages, validate_jdcloud_sysupgrade,
 )
+from Scripts.release import latest_jobs
 
 
 # Device definition from VIKINGYFY/immortalwrt 4bec1cb (the failed build's source).
@@ -303,6 +304,27 @@ class JDCloudRECS06Tests(unittest.TestCase):
                 args.kernel_compression = "gzip"
                 with self.subTest(profile=name), self.assertRaisesRegex(ValueError, "requires jdcloud"):
                     plan(args)
+
+
+class ReleaseTests(unittest.TestCase):
+    def test_latest_jobs_accepts_compression_in_display_name(self):
+        jobs = {"jobs": [
+            {"id": 1, "name": "jdcloud-re-cs-06 / lzma / compile", "run_attempt": 1},
+            {"id": 2, "name": "xiaomi-be6500 / default / compile", "run_attempt": 1},
+            {"id": 3, "name": "jdcloud-re-cs-06 / publish", "run_attempt": 1},
+            {"id": 4, "name": "build (x86-64, source) / compile", "run_attempt": 1},
+            {"id": 5, "name": "x86-64 / compile", "run_attempt": 1},
+            {"id": 6, "name": "plan", "run_attempt": 1},
+        ]}
+        with patch("Scripts.release.gh_json", return_value=[jobs]):
+            parsed = latest_jobs("test/firmware", {"id": 1})
+        self.assertEqual(set(parsed), {
+            ("jdcloud-re-cs-06", "compile"),
+            ("xiaomi-be6500", "compile"),
+            ("jdcloud-re-cs-06", "publish"),
+            ("x86-64", "compile"),
+        })
+        self.assertEqual(parsed[("jdcloud-re-cs-06", "compile")]["id"], 1)
 
 
 if __name__ == "__main__":
