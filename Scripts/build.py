@@ -302,7 +302,7 @@ def compression_profile(profile_id, profile, compression="profile"):
     lzma_patch = "Scripts/Patches/jdcloud-re-cs-06-lzma-kernel.patch"
     patches = [path for path in profile.get("patches", []) if path != lzma_patch]
     if selected == "lzma":
-        patches.append(lzma_patch)
+        patches.insert(0, lzma_patch)
     return {**profile, "kernel_compression": selected, "patches": patches}
 
 

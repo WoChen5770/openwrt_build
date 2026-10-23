@@ -1,0 +1,17 @@
+Mark the eMMC factory partition node as a GPT partition so the block NVMEM
+provider can expose the LAN/WAN MAC cells referenced by qcom-ppe.
+
+Without this compatible, qcom-ppe remains in deferred probe and no wired
+Ethernet ports are registered.
+
+--- a/target/linux/qualcommbe/dts/ipq5322-re-cs-06.dts
++++ b/target/linux/qualcommbe/dts/ipq5322-re-cs-06.dts
+@@ -183,6 +183,8 @@
+ 			compatible = "block-device";
+ 
+ 			partitions {
++				compatible = "gpt-partitions";
++
+ 				block-partition-factory {
+ 					partname = "factory";
+ 

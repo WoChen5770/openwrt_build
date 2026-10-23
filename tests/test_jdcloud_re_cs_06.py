@@ -39,6 +39,30 @@ FIT_LISTING = """FIT description: ARM64 OpenWrt FIT (Flattened Image Tree)
   Compression:  uncompressed
 """
 
+JDCLOUD_DTS = """&sdhc {
+	status = "okay";
+
+	card@0 {
+		compatible = "mmc-card";
+		reg = <0>;
+
+		block {
+			compatible = "block-device";
+
+			partitions {
+				block-partition-factory {
+					partname = "factory";
+
+					nvmem-layout {
+						compatible = "fixed-layout";
+					};
+				};
+			};
+		};
+	};
+};
+"""
+
 
 class JDCloudRECS06Tests(unittest.TestCase):
     profile_id = "jdcloud-re-cs-06"
@@ -134,21 +158,31 @@ class JDCloudRECS06Tests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "forbidden packages"):
                 validate_image_packages(Path(temporary), self.profile, self.profile_id)
 
-    def test_lzma_patch_only_changes_jdcloud_compression(self):
+    def test_source_patches_fix_compression_and_emmc_mac_nvmem(self):
         before = ("define Device/xiaomi_be6500\n\t$(call Device/FitImage)\nendef\n\n" + JDCLOUD_DEVICE
                   + "\ndefine Device/jdcloud_re-cs-08\n\t$(call Device/FitImage)\nendef\n")
         with tempfile.TemporaryDirectory() as temporary:
             tree = Path(temporary)
             image = tree / "target/linux/qualcommbe/image/ipq53xx.mk"
+            dts = tree / "target/linux/qualcommbe/dts/ipq5322-re-cs-06.dts"
             image.parent.mkdir(parents=True)
+            dts.parent.mkdir(parents=True)
             image.write_text(before)
+            dts.write_text(JDCLOUD_DTS)
             apply_source_patches(tree, compression_profile(self.profile_id, self.profile, "gzip"))
             self.assertEqual(image.read_text(), before)
+            self.assertIn('compatible = "gpt-partitions";', dts.read_text())
+
+            image.write_text(before)
+            dts.write_text(JDCLOUD_DTS)
             apply_source_patches(tree, self.profile)
             expected = before.replace("define Device/jdcloud_re-cs-06\n\t$(call Device/FitImage)",
                                       "define Device/jdcloud_re-cs-06\n\t$(call Device/FitImageLzma)")
             self.assertEqual(image.read_text(), expected)
+            self.assertIn('compatible = "gpt-partitions";', dts.read_text())
+
             image.write_text(before.replace("KERNEL_SIZE := 7168k", "KERNEL_SIZE := 8192k"))
+            dts.write_text(JDCLOUD_DTS)
             with self.assertRaises(subprocess.CalledProcessError):
                 apply_source_patches(tree, self.profile)
 
@@ -218,13 +252,14 @@ class JDCloudRECS06Tests(unittest.TestCase):
         self.assertEqual(compression_profile(self.profile_id, self.profile), self.profile)
         gzip = compression_profile(self.profile_id, self.profile, "gzip")
         self.assertEqual(gzip["kernel_compression"], "gzip")
-        self.assertEqual(gzip["patches"], [])
+        self.assertEqual(gzip["patches"], ["Scripts/Patches/jdcloud-re-cs-06-emmc-mac-nvmem.patch"])
         restored = compression_profile(self.profile_id, gzip, "lzma")
         self.assertEqual(restored, self.profile)
         self.assertEqual(original, self.profile)
         self.assertEqual(compression_profile(self.profile_id, self.profile, "lzma")["patches"], self.profile["patches"])
         extra = {**self.profile, "patches": [*self.profile["patches"], "Scripts/Patches/other.patch"]}
-        self.assertEqual(compression_profile(self.profile_id, extra, "gzip")["patches"], ["Scripts/Patches/other.patch"])
+        self.assertEqual(compression_profile(self.profile_id, extra, "gzip")["patches"],
+                         ["Scripts/Patches/jdcloud-re-cs-06-emmc-mac-nvmem.patch", "Scripts/Patches/other.patch"])
         for name in ("all", "s20p-mt76", "x86-64"):
             with self.subTest(profile=name), self.assertRaisesRegex(ValueError, "requires jdcloud"):
                 compression_profile(name, self.profile, "gzip")
@@ -248,6 +283,8 @@ class JDCloudRECS06Tests(unittest.TestCase):
                 matrices[compression] = read_json(output / "matrix.json")["matrix"]["include"][0]
             self.assertEqual(locks["profile"], locks["lzma"])
             self.assertNotEqual(locks["lzma"]["fingerprint"], locks["gzip"]["fingerprint"])
+            self.assertEqual(len(locks["gzip"]["profile"]["patches"]), 1)
+            self.assertTrue(locks["gzip"]["profile"]["patches"][0].endswith("emmc-mac-nvmem.patch"))
             self.assertNotEqual(matrices["lzma"]["concurrency_group"], matrices["gzip"]["concurrency_group"])
             for compression in ("lzma", "gzip"):
                 self.assertEqual(locks[compression]["profile"]["kernel_compression"], compression)
