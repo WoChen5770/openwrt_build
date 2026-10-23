@@ -107,6 +107,6 @@ CONFIG_PACKAGE_samba4=y
 | :--- | :--- |
 | 默认设置 | 首次使用请修改管理与 Wi-Fi 密码；保留配置升级沿用原有设置 |
 | 固件选择 | 核对机型、引导器与分区；S20P / 7DR7299 的 MTK 与 MT76 版不保证100%直接互刷 |
-| 赵云 RE-CS-06 | 构建选项为 `jdcloud-re-cs-06`；仅适用于 RE-CS-06，非 RE-CS-08；首次刷入须核对引导器与 eMMC 分区，勿将 sysupgrade 当作原厂首次刷入包 |
+| 赵云 RE-CS-06 | 构建选项为 `jdcloud-re-cs-06`；仅适用于 RE-CS-06，非 RE-CS-08；使用 LZMA/FIT 内核以保留 BTF，维持上游 7 MiB 内核区域与 eMMC 布局；刷入前确认引导器支持 LZMA/FIT，勿将 sysupgrade 当作原厂首次刷入包 |
 
 </details>

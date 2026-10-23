@@ -369,6 +369,9 @@ network_tuning = true
 # 完整机型配置；第三方插件与 S20P MT76 对齐
 config = "Config/JDCLOUD-RE-CS-06.txt"
 
+# 保留 7 MiB 内核区域，用 LZMA 压缩容纳 BTF
+patches = ["Scripts/Patches/jdcloud-re-cs-06-lzma-kernel.patch"]
+
 # eMMC 驱动由 qualcommbe 内核内置，无需 kmod-mmc
 required = [
   "PACKAGE_kmod-ath12k",

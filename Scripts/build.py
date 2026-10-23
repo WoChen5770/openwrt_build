@@ -495,6 +495,18 @@ def use_packaged_adguardhome(tree):
     path.write_text(content)
 
 
+def apply_source_patches(tree, profile):
+    for name in profile.get("patches", []):
+        relative = Path(name)
+        if relative.is_absolute() or ".." in relative.parts or relative.parts[:2] != ("Scripts", "Patches"):
+            raise ValueError("Invalid source patch path")
+        path = ROOT / relative
+        if not path.is_file():
+            raise ValueError("Source patch is missing: " + name)
+        print("Applying source patch: " + name, flush=True)
+        run("patch", "--batch", "--forward", "--fuzz=0", "-p1", "-i", str(path), cwd=tree)
+
+
 def apply_kernel_config(tree, profile):
     """Scoped platform BPF settings required by the 7DR7299 reference builds."""
     specification = profile.get("kernel_config")
@@ -821,6 +833,7 @@ def prepare(args):
     remove_qmodem(tree)
     vendor = lock["profile"].get("variant") == "mtk-vendor" or lock["profile"]["source"] == "chasey"
     apply_defaults(tree, lock["defaults"], vendor, lock["profile"].get("wireless_defaults"))
+    apply_source_patches(tree, lock["profile"])
     apply_kernel_config(tree, lock["profile"])
     customize_luci(tree, lock["defaults"], identity)
     write_json(tree / ".build-identity.json", identity)
@@ -891,6 +904,27 @@ def seven_dr_images(target, profile):
     return images
 
 
+def validate_jdcloud_sysupgrade(path, tree):
+    # Check the shipped FIT, not just the source recipe; never enlarge the kernel slot.
+    with tempfile.TemporaryDirectory(prefix="owrt-kernel-check-") as temporary:
+        kernel = Path(temporary) / "kernel.itb"
+        with tarfile.open(path) as archive:
+            members = [m for m in archive.getmembers() if m.isfile() and m.name.endswith("/kernel")]
+            if len(members) != 1:
+                raise ValueError("Expected one RE-CS-06 sysupgrade kernel")
+            size = members[0].size
+            limit = 7168 * 1024
+            if not 0 < size <= limit:
+                raise ValueError(f"RE-CS-06 FIT kernel exceeds 7 MiB or is empty: {size} bytes")
+            with archive.extractfile(members[0]) as source, kernel.open("wb") as destination:
+                shutil.copyfileobj(source, destination)
+        listing = run(str(tree / "staging_dir/host/bin/mkimage"), "-l", str(kernel))
+        compressions = re.findall(r"(?m)^\s*Compression:\s*(.+?)\s*$", listing)
+        if not listing.startswith("FIT description:") or not compressions or compressions[0] != "lzma compressed":
+            raise ValueError("Expected an LZMA-compressed RE-CS-06 FIT kernel")
+    print(f"RE-CS-06 FIT kernel verified: {size} / {limit} bytes; LZMA")
+
+
 def validate_mtk_sysupgrade(path):
     # Inspect the actual SquashFS, not just Kconfig or the package manifest.
     with tempfile.TemporaryDirectory(prefix="owrt-image-check-") as temporary:
@@ -936,6 +970,9 @@ def release_notes(lock, identity=None, config_name="Config-*.txt"):
     else:
         notes += "\nx86 无内置无线时不生成热点。\n"
     notes += "\n> 首次登录请修改默认密码。只刷匹配机型与分区的镜像；sysupgrade 不代表适用于原厂首次刷入，勿强刷。\n"
+    if lock["profile_id"] == "jdcloud-re-cs-06":
+        notes += "\n> RE-CS-06 使用 LZMA/FIT 内核，保留上游 7 MiB 内核区域与 eMMC 布局。"
+        notes += "升级前确认当前引导器支持 LZMA/FIT；不提供或自动更新引导器，未验证的引导器勿强刷。\n"
     if lock["profile_id"].startswith("s20p-"):
         notes += "\n> S20P MTK / MT76 不保证直接互刷。"
         if profile["source"] == "chasey":
@@ -968,6 +1005,11 @@ def collect(args):
     if identity["profile_id"] != lock["profile_id"]:
         raise ValueError("Build identity profile mismatch")
     manifest = validate_image_packages(target, profile, lock["profile_id"])
+    if lock["profile_id"] == "jdcloud-re-cs-06":
+        sysupgrades = list(target.glob("*" + profile["image_match"] + "*sysupgrade*.bin"))
+        if len(sysupgrades) != 1:
+            raise ValueError("Expected one RE-CS-06 sysupgrade image")
+        validate_jdcloud_sysupgrade(sysupgrades[0], tree)
     fit_images = seven_dr_images(target, profile) if lock["profile_id"].startswith("7dr7299-") else None
     if lock["profile_id"] == "s20p-mtk":
         sysupgrades = list(target.glob("*" + profile["image_match"] + "*sysupgrade*.bin"))
