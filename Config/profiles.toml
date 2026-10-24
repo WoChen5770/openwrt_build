@@ -375,6 +375,7 @@ kernel_compression = "lzma"
 patches = [
   "Scripts/Patches/jdcloud-re-cs-06-lzma-kernel.patch",
   "Scripts/Patches/jdcloud-re-cs-06-emmc-mac-nvmem.patch",
+  "Scripts/Patches/jdcloud-re-cs-06-qca4b-pppoe.patch",
 ]
 
 # 上游 qualcommbe 默认包 + 赵云设备包由 defconfig 展开；这里固定最终镜像的回归门禁

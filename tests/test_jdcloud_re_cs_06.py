@@ -78,6 +78,27 @@ JDCLOUD_DTS = """&sdhc {
 };
 """
 
+QCA4B_PPPOE_PATCH = (
+    "+\t * The caller already holds its flow's VP reference.\n"
+    "+\t */\n"
+    "+\tif (vp >= 0) {\n"
+    "+\t\t/* VLAN-over-VP needs VP translation rules, not a physical rule. */\n"
+    "+\t\tif (session->svid >= 0 || session->cvid >= 0)\n"
+    "+\t\t\treturn -EOPNOTSUPP;\n"
+    "+\t\tret = ppe_vp_ref_qca4b(ft->ppe_dev, vp, session->port);\n"
+    "+\t\tif (ret)\n"
+    "+\t\t\treturn ret;\n"
+    " \t}\n"
+    " \n"
+    "-\treturn -ENOENT;\n"
+    "+\tif (session->svid >= 0 || session->cvid >= 0) {\n"
+    "+\t\tvlan = ppe_ft_vlan_get(ft, session->port, session->svid,\n"
+    "+\t\t\t\t       session->cvid, session->vlan_mtu,\n"
+    "+\t\t\t\t       session->keep_svid,\n"
+    "+\t\t\t\t       session->keep_cvid);\n"
+)
+QCA4B_PPPOE_FIXTURE = "\n".join(["+"] * 603) + "\n" + QCA4B_PPPOE_PATCH
+
 
 class JDCloudRECS06Tests(unittest.TestCase):
     profile_id = "jdcloud-re-cs-06"
@@ -199,35 +220,44 @@ class JDCloudRECS06Tests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "forbidden packages"):
                 validate_image_packages(Path(temporary), self.profile, self.profile_id)
 
-    def test_source_patches_fix_compression_and_emmc_mac_nvmem(self):
+    def test_source_patches_fix_compression_storage_and_qca4b_pppoe(self):
         before = ("define Device/xiaomi_be6500\n\t$(call Device/FitImage)\nendef\n\n" + JDCLOUD_DEVICE
                   + "\ndefine Device/jdcloud_re-cs-08\n\t$(call Device/FitImage)\nendef\n")
         with tempfile.TemporaryDirectory() as temporary:
             tree = Path(temporary)
             image = tree / "target/linux/qualcommbe/image/ipq53xx.mk"
             dts = tree / "target/linux/qualcommbe/dts/ipq5322-re-cs-06.dts"
+            pppoe = (tree / "target/linux/qualcommbe/patches-6.18/"
+                     "0652-net-ethernet-qualcomm-ppe-manage-dsa-pppoe-flow-lifecycle.patch")
             image.parent.mkdir(parents=True)
             dts.parent.mkdir(parents=True)
+            pppoe.parent.mkdir(parents=True)
             image.write_text(before)
             dts.write_text(JDCLOUD_DTS)
+            pppoe.write_text(QCA4B_PPPOE_FIXTURE)
             apply_source_patches(tree, compression_profile(self.profile_id, self.profile, "gzip"))
             self.assertEqual(image.read_text(), before)
             patched_dts = dts.read_text()
             self.assertIn('compatible = "gpt-partitions";', patched_dts)
             self.assertIn('partname = "0:ART";', patched_dts)
             self.assertNotIn('compatible = "block-device";', patched_dts)
+            self.assertNotIn("VLAN-over-VP needs VP translation rules", pppoe.read_text())
+            self.assertIn("QCA4B already owns the user-port identity", pppoe.read_text())
 
             image.write_text(before)
             dts.write_text(JDCLOUD_DTS)
+            pppoe.write_text(QCA4B_PPPOE_FIXTURE)
             apply_source_patches(tree, self.profile)
             expected = before.replace("define Device/jdcloud_re-cs-06\n\t$(call Device/FitImage)",
                                       "define Device/jdcloud_re-cs-06\n\t$(call Device/FitImageLzma)")
             self.assertEqual(image.read_text(), expected)
             self.assertIn('compatible = "gpt-partitions";', dts.read_text())
             self.assertIn('partname = "0:ART";', dts.read_text())
+            self.assertIn("A physical underlay still needs a VLAN VSI", pppoe.read_text())
 
             image.write_text(before.replace("KERNEL_SIZE := 7168k", "KERNEL_SIZE := 8192k"))
             dts.write_text(JDCLOUD_DTS)
+            pppoe.write_text(QCA4B_PPPOE_FIXTURE)
             with self.assertRaises(subprocess.CalledProcessError):
                 apply_source_patches(tree, self.profile)
 
@@ -311,14 +341,20 @@ class JDCloudRECS06Tests(unittest.TestCase):
         self.assertEqual(compression_profile(self.profile_id, self.profile), self.profile)
         gzip = compression_profile(self.profile_id, self.profile, "gzip")
         self.assertEqual(gzip["kernel_compression"], "gzip")
-        self.assertEqual(gzip["patches"], ["Scripts/Patches/jdcloud-re-cs-06-emmc-mac-nvmem.patch"])
+        self.assertEqual(gzip["patches"], [
+            "Scripts/Patches/jdcloud-re-cs-06-emmc-mac-nvmem.patch",
+            "Scripts/Patches/jdcloud-re-cs-06-qca4b-pppoe.patch",
+        ])
         restored = compression_profile(self.profile_id, gzip, "lzma")
         self.assertEqual(restored, self.profile)
         self.assertEqual(original, self.profile)
         self.assertEqual(compression_profile(self.profile_id, self.profile, "lzma")["patches"], self.profile["patches"])
         extra = {**self.profile, "patches": [*self.profile["patches"], "Scripts/Patches/other.patch"]}
-        self.assertEqual(compression_profile(self.profile_id, extra, "gzip")["patches"],
-                         ["Scripts/Patches/jdcloud-re-cs-06-emmc-mac-nvmem.patch", "Scripts/Patches/other.patch"])
+        self.assertEqual(compression_profile(self.profile_id, extra, "gzip")["patches"], [
+            "Scripts/Patches/jdcloud-re-cs-06-emmc-mac-nvmem.patch",
+            "Scripts/Patches/jdcloud-re-cs-06-qca4b-pppoe.patch",
+            "Scripts/Patches/other.patch",
+        ])
         for name in ("all", "s20p-mt76", "x86-64"):
             with self.subTest(profile=name), self.assertRaisesRegex(ValueError, "requires jdcloud"):
                 compression_profile(name, self.profile, "gzip")
@@ -342,8 +378,10 @@ class JDCloudRECS06Tests(unittest.TestCase):
                 matrices[compression] = read_json(output / "matrix.json")["matrix"]["include"][0]
             self.assertEqual(locks["profile"], locks["lzma"])
             self.assertNotEqual(locks["lzma"]["fingerprint"], locks["gzip"]["fingerprint"])
-            self.assertEqual(len(locks["gzip"]["profile"]["patches"]), 1)
-            self.assertTrue(locks["gzip"]["profile"]["patches"][0].endswith("emmc-mac-nvmem.patch"))
+            self.assertEqual(locks["gzip"]["profile"]["patches"], [
+                "Scripts/Patches/jdcloud-re-cs-06-emmc-mac-nvmem.patch",
+                "Scripts/Patches/jdcloud-re-cs-06-qca4b-pppoe.patch",
+            ])
             self.assertNotEqual(matrices["lzma"]["concurrency_group"], matrices["gzip"]["concurrency_group"])
             for compression in ("lzma", "gzip"):
                 self.assertEqual(locks[compression]["profile"]["kernel_compression"], compression)
