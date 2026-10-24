@@ -223,6 +223,8 @@ class JDCloudRECS06Tests(unittest.TestCase):
     def test_source_patches_fix_compression_storage_and_qca4b_pppoe(self):
         before = ("define Device/xiaomi_be6500\n\t$(call Device/FitImage)\nendef\n\n" + JDCLOUD_DEVICE
                   + "\ndefine Device/jdcloud_re-cs-08\n\t$(call Device/FitImage)\nendef\n")
+        override = (ROOT / "Scripts/Patches/jdcloud-re-cs-06-qca4b-pppoe.patch").read_text()
+        self.assertIn("@@ -604,16 +604,16 @@", override)
         with tempfile.TemporaryDirectory() as temporary:
             tree = Path(temporary)
             image = tree / "target/linux/qualcommbe/image/ipq53xx.mk"
@@ -253,7 +255,7 @@ class JDCloudRECS06Tests(unittest.TestCase):
             self.assertEqual(image.read_text(), expected)
             self.assertIn('compatible = "gpt-partitions";', dts.read_text())
             self.assertIn('partname = "0:ART";', dts.read_text())
-            self.assertIn("A physical underlay still needs a VLAN VSI", pppoe.read_text())
+            self.assertIn("physical-port VLAN VSI is required", pppoe.read_text())
 
             image.write_text(before.replace("KERNEL_SIZE := 7168k", "KERNEL_SIZE := 8192k"))
             dts.write_text(JDCLOUD_DTS)
