@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 from Scripts.build import (
     ROOT, apply_source_patches, compression_profile, defaults, merge_config, plan, read_json, read_toml, release_notes,
-    validate_config, validate_image_packages, validate_jdcloud_sysupgrade,
+    required_for, validate_config, validate_image_packages, validate_jdcloud_sysupgrade,
 )
 from Scripts.release import latest_jobs, release_title
 
@@ -95,42 +95,66 @@ class JDCloudRECS06Tests(unittest.TestCase):
         self.assertEqual(self.profile["subtarget"], "ipq53xx")
         self.assertEqual(self.profile["device"], "jdcloud_re-cs-06")
         self.assertEqual(self.values["CCACHE"], "y")
-        validate_config(self.profile_id, self.profile, self.seed, self.values)
         for key in self.profile["required"]:
-            self.assertEqual(self.values.get(key), "y", key)
+            # Upstream defconfig supplies these unless the seed explicitly disables them.
+            self.assertNotEqual(self.values.get(key), "n", key)
+        final = dict(self.values)
+        final.update({key: "y" for key in required_for(self.profile_id, self.profile, final)})
+        final_text = "".join("CONFIG_" + key + "=" + value + "\n" for key, value in final.items())
+        validate_config(self.profile_id, self.profile, final_text, final)
         for key in self.profile["forbidden"]:
             with self.subTest(forbidden=key), self.assertRaises(ValueError):
-                validate_config(self.profile_id, self.profile, self.seed + f"\nCONFIG_{key}=y\n", self.values)
+                validate_config(self.profile_id, self.profile, final_text + f"\nCONFIG_{key}=y\n", final)
 
     def test_s20p_plugin_selections_preserved(self):
         reference = merge_config([(ROOT / self.profiles["s20p-mt76"]["config"]).read_text()])
-        plugins = {"adguardhome", "daed", "honk", "easytier", "xray-core", "v2ray-geoip", "v2ray-geosite",
-                   "dawn", "umdns", "batctl-default", "wpad-openssl", "kmod-batman-adv", "MAC80211_MESH"}
-        for key, value in reference.items():
-            if key.startswith("PACKAGE_luci") or key.removeprefix("PACKAGE_") in plugins or "_INCLUDE_" in key:
-                self.assertEqual(self.values.get(key), value, key)
+        plugins = {
+            "PACKAGE_adguardhome", "PACKAGE_daed", "PACKAGE_honk", "PACKAGE_easytier",
+            "PACKAGE_xray-core", "PACKAGE_v2ray-geoip", "PACKAGE_v2ray-geosite",
+            "PACKAGE_dawn", "PACKAGE_umdns", "PACKAGE_batctl-default",
+            "PACKAGE_kmod-batman-adv", "PACKAGE_MAC80211_MESH",
+            "PACKAGE_luci-app-adguardhome", "PACKAGE_luci-app-autoreboot",
+            "PACKAGE_luci-app-daede", "PACKAGE_luci-app-easytier",
+            "PACKAGE_luci-app-honk", "PACKAGE_luci-app-mesh",
+            "PACKAGE_luci-app-passwall", "PACKAGE_luci-app-upnp",
+            "PACKAGE_luci-app-wolultra", "PACKAGE_luci-theme-shadcn",
+        }
+        plugins.update(key for key in reference if "_INCLUDE_" in key)
+        for key in plugins:
+            self.assertEqual(self.values.get(key), reference.get(key), key)
         for key in ("KERNEL_DEBUG_INFO_BTF", "DAED_USE_KERNEL_BTF", "BPF_TOOLCHAIN_HOST"):
             self.assertEqual(self.values[key], "y")
 
-    def test_unneeded_explicit_packages_pruned(self):
-        removed = {"kmod-ata-ahci", "kmod-ata-core", "kmod-nvme", "nvme-cli", "libnvme", "kmod-usb-audio",
-                   "kmod-sound-core", "kmod-usb-ehci", "kmod-usb-ohci", "kmod-usb-uhci", "kmod-fs-ksmbd",
-                   "kmod-ovpn-backports", "kmod-bonding", "proto-bonding", "kmod-cryptodev", "kmod-tls",
-                   "kmod-mtd-rw", "nand-utils", "kmod-wireguard", "usbmuxd", "libimobiledevice",
-                   "usb-modeswitch", "kmod-fs-btrfs", "kmod-fuse", "kmod-dummy", "kmod-inet-mptcp-diag",
-                   "cfdisk", "cgdisk", "gdisk", "sfdisk", "sgdisk", "smartmontools", "smartmontools-drivedb", "coremark"}
-        reference = merge_config([(ROOT / self.profiles["s20p-mt76"]["config"]).read_text()])
-        removed |= {key.removeprefix("PACKAGE_") for key in reference if key.startswith("PACKAGE_kmod-usb-net")}
-        self.assertEqual(len(removed), 48)
-        for name in removed:
+    def test_upstream_defaults_are_inherited_and_checked(self):
+        inherited = {
+            "autocore", "automount", "cpufreq", "e2fsprogs", "f2fs-tools", "losetup",
+            "uboot-envtools", "wpad-openssl", "dnsmasq-full", "tc-tiny",
+            "ath12k-firmware-ipq5332-ddwrt", "ath12k-firmware-qcn9274-ddwrt",
+            "ipq-wifi-jdcloud_re-cs-06", "kmod-ath12k", "kmod-qcom-ppe",
+            "kmod-qcom-qmi-helpers", "kmod-qrtr-mhi", "kmod-qrtr-smd", "kmod-dsa",
+            "kmod-dsa-qca8k", "kmod-phy-aquantia", "kmod-phy-qca83xx",
+            "kmod-pcs-qcom-ipq9574", "kmod-fs-ext4", "kmod-fs-f2fs",
+            "kmod-gpio-button-hotplug", "kmod-leds-gpio", "kmod-usb3", "kmod-usb-dwc3",
+            "kmod-usb-dwc3-qcom", "kmod-usb-serial-qualcomm", "kmod-usb-storage",
+            "kmod-usb-storage-extras", "kmod-usb-storage-uas", "firewall4",
+            "kmod-nf-flow", "kmod-nft-offload", "fullconenat-sonic",
+        }
+        gate_packages = set(self.profile["required_image_packages"])
+        for name in inherited:
             self.assertNotIn("PACKAGE_" + name, self.values, name)
+            self.assertIn(name, gate_packages, name)
 
-    def test_proxy_and_storage_dependencies_preserved(self):
-        for name in ("kmod-nft-queue", "kmod-nft-socket", "kmod-nft-tproxy", "kmod-nft-nat", "kmod-tun",
-                     "kmod-veth", "kmod-sched", "kmod-tcp-bbr", "ip-full", "automount", "kmod-usb3",
-                     "kmod-usb-dwc3-qcom", "kmod-usb-storage", "kmod-usb-storage-extras", "kmod-usb-storage-uas",
-                     "fdisk", "lsblk", "mmc-utils", "exfat-fsck", "exfat-mkfs"):
+    def test_proxy_and_offload_dependencies_preserved(self):
+        for name in ("kmod-nf-flow", "kmod-nf-nat", "kmod-nft-nat", "kmod-nft-offload",
+                     "fullconenat-sonic"):
+            self.assertIn(name, self.profile["required_image_packages"], name)
+        for name in ("kmod-sched", "kmod-tcp-bbr"):
             self.assertEqual(self.values["PACKAGE_" + name], "y", name)
+            self.assertIn(name, self.profile["required_image_packages"], name)
+        for key in ("PACKAGE_luci-app-passwall", "PACKAGE_xray-core", "PACKAGE_daed",
+                    "PACKAGE_honk", "PACKAGE_easytier", "PACKAGE_adguardhome",
+                    "PACKAGE_luci-app-mesh"):
+            self.assertEqual(self.values[key], "y", key)
         for key in ("KERNEL_BPF_EVENTS", "KERNEL_DEBUG_INFO", "KERNEL_DEBUG_INFO_BTF", "KERNEL_XDP_SOCKETS"):
             self.assertEqual(self.values[key], "y", key)
 
