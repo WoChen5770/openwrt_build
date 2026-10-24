@@ -24,6 +24,8 @@
 | 超级网关S20P · MTK | 闭源无线 · HNAT / WARP · TurboACC / eQoS<br>PassWall（Xray-only）· daed / honk · EasyTier · AdGuard Home | [chasey-dev / 25.12](https://github.com/chasey-dev/immortalwrt-mt798x-rebase/tree/25.12) |
 | 京东云无线宝赵云 · JDCloud RE-CS-06 | ath12k · PPE · Mesh / DAWN · BBR / fq<br>PassWall（Xray-only）· daed / honk · EasyTier · AdGuard Home | [VIKINGYFY / owrt](https://github.com/VIKINGYFY/immortalwrt/tree/owrt) |
 
+> 赵云（构建选项 `jdcloud-re-cs-06`）使用 LZMA/FIT 内核，保留上游 7 MiB 内核区域与 eMMC 布局，刷入前请确认引导器兼容。
+
 ## 默认设置
 
 | 项目 | 设置 |
@@ -81,7 +83,7 @@ Scripts/             构建脚本、插件集成及配套资源
 | 进阶选项 | 说明 |
 | :--- | :--- |
 | `source_commit` | 单机型锁定上游完整 40 位 SHA |
-| `kernel_compression` | 仅赵云支持覆盖：`profile` 使用默认 LZMA；`lzma` / `gzip` 可分别发起构建，按压缩方式隔离并发组；两组对比建议锁定同一 `source_commit` 并设 `publish=false` |
+| `kernel_compression` | 仅赵云可用：`profile`（默认 LZMA）、`lzma` 或 `gzip`。 |
 | Python | 构建脚本需要 3.11+，Actions 已满足 |
 | `packages` | 本次构建追加选包，优先级高于配置文件；只能填写 `CONFIG_PACKAGE_name=y/m/n` |
 | `Config/PRIVATE.txt` | 可选的最后一层配置，应用到所选机型（`all` 时是全部机型） |
@@ -101,14 +103,6 @@ CONFIG_PACKAGE_samba4=y
 ```
 </details>
 
-### 赵云配置与压缩对比
-
-赵云保留 ath12k / PPE、Mesh / DAWN、PassWall（Xray-only）、daed / honk、EasyTier、AdGuard Home、shadcn 以及 BBR / fq；保留 BTF / BPF / XDP 和插件所需依赖，不以关闭透明代理能力换取体积。
-
-精简从 S20P 复制来的 SATA / 原生 NVMe、USB 声卡、独立 EHCI / OHCI / UHCI、USB 网卡 / 手机共享 / 调制解调器、KSmbd、OpenVPN 回移模块、WireGuard 内核模块、bonding、Btrfs / FUSE 和重复分区工具等显式选包。保留 eMMC 维护工具、DWC3 USB3、automount / USB 存储及常用文件系统；由上游或插件依赖重新选中的包仍会保留。
-
-这些精简大多减少 rootfs 中的模块和工具，不保证 gzip 内核一定能降到 7 MiB 内。两种压缩都保持上游 7168 KiB 内核限制和 eMMC 布局，超限即失败，不生成放宽限制的刷机包。赵云产物文件名与 `build-info.json` 标识实际压缩方式；日志附件提供 `kernel-config-*`、`kernel-sections-*`、`kernel-sizes.log`，便于对比内核配置与体积。
-
 <details>
 <summary>首次使用</summary>
 
@@ -116,6 +110,5 @@ CONFIG_PACKAGE_samba4=y
 | :--- | :--- |
 | 默认设置 | 首次使用请修改管理与 Wi-Fi 密码；保留配置升级沿用原有设置 |
 | 固件选择 | 核对机型、引导器与分区；S20P / 7DR7299 的 MTK 与 MT76 版不保证100%直接互刷 |
-| 赵云 RE-CS-06 | 构建选项为 `jdcloud-re-cs-06`；仅适用于 RE-CS-06，非 RE-CS-08；默认使用 LZMA/FIT 内核，可选原始 gzip/FIT 对比，维持上游 7 MiB 内核区域与 eMMC 布局；刷入前确认引导器支持所选压缩格式 / FIT，勿将 sysupgrade 当作原厂首次刷入包 |
 
 </details>

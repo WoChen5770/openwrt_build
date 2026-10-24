@@ -356,6 +356,7 @@ forbidden = ["PACKAGE_kmod-mt_wifi"]
 # 京东云无线宝赵云
 [profiles.jdcloud-re-cs-06]
 display_name = "京东云无线宝赵云 · JDCloud RE-CS-06"
+release_name = "JDCloud RE-CS-06"
 source = "viking"
 target = "qualcommbe"
 subtarget = "ipq53xx"

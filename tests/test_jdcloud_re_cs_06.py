@@ -12,7 +12,7 @@ from Scripts.build import (
     ROOT, apply_source_patches, compression_profile, defaults, merge_config, plan, read_json, read_toml, release_notes,
     validate_config, validate_image_packages, validate_jdcloud_sysupgrade,
 )
-from Scripts.release import latest_jobs
+from Scripts.release import latest_jobs, release_title
 
 
 # Device definition from VIKINGYFY/immortalwrt 4bec1cb (the failed build's source).
@@ -257,14 +257,28 @@ class JDCloudRECS06Tests(unittest.TestCase):
         lock = dict(profile_id=self.profile_id, profile=self.profile, defaults=defaults(self.profile_id),
                     source={**source, "commit": "0" * 40}, config=self.values, fingerprint="test", ci_hash="test")
         notes = release_notes(lock)
+        self.assertIn("ImmortalWrt · JDCloud RE-CS-06", notes)
+        self.assertNotIn("京东云无线宝赵云", notes)
         self.assertIn("LZMA/FIT", notes)
         self.assertIn("7 MiB", notes)
-        self.assertIn("引导器", notes)
+        self.assertIn(
+            "RE-CS-06 使用 LZMA/FIT 内核，保留上游 7 MiB 内核区域与 eMMC 布局，刷入前请确认引导器兼容。",
+            notes,
+        )
+        self.assertNotIn("不提供或自动更新引导器", notes)
         lock["profile"] = compression_profile(self.profile_id, self.profile, "gzip")
         notes = release_notes(lock)
         self.assertIn("GZIP/FIT", notes)
         self.assertIn("7 MiB", notes)
         self.assertNotIn("LZMA", notes)
+
+    def test_readme_keeps_zhao_note_concise(self):
+        readme = (ROOT / "README.md").read_text()
+        self.assertIn(
+            "> 赵云（构建选项 `jdcloud-re-cs-06`）使用 LZMA/FIT 内核，保留上游 7 MiB 内核区域与 eMMC 布局，刷入前请确认引导器兼容。",
+            readme,
+        )
+        self.assertNotIn("### 赵云配置与压缩对比", readme)
 
     def test_compression_overrides_are_scoped_and_nonmutating(self):
         original = {**self.profile, "patches": list(self.profile["patches"])}
@@ -325,6 +339,17 @@ class JDCloudRECS06Tests(unittest.TestCase):
 
 
 class ReleaseTests(unittest.TestCase):
+    def test_release_title_uses_short_name_when_configured(self):
+        profiles = read_toml(ROOT / "Config/profiles.toml")["profiles"]
+        self.assertEqual(
+            release_title("jdcloud-re-cs-06", profiles["jdcloud-re-cs-06"], "2026-10-24T01:50:33Z"),
+            "JDCloud RE-CS-06",
+        )
+        self.assertEqual(
+            release_title("x86-64", profiles["x86-64"], "2026-10-24T01:50:33Z"),
+            "x86-64 · 2026-10-24",
+        )
+
     def test_latest_jobs_accepts_compression_in_display_name(self):
         jobs = {"jobs": [
             {"id": 1, "name": "jdcloud-re-cs-06 / lzma / compile", "run_attempt": 1},

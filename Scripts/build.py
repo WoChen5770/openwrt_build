@@ -981,7 +981,7 @@ def validate_mtk_sysupgrade(path):
 
 def release_notes(lock, identity=None, config_name="Config-*.txt"):
     profile, values, source = lock["profile"], lock["defaults"], lock["source"]
-    label = profile.get("display_name", lock["profile_id"])
+    label = profile.get("release_name") or profile.get("display_name", lock["profile_id"])
     repository = source["repository"].removesuffix(".git")
     notes = "ImmortalWrt · " + label + "\n\n"
     if identity:
@@ -998,8 +998,8 @@ def release_notes(lock, identity=None, config_name="Config-*.txt"):
     notes += "\n> 首次登录请修改默认密码。只刷匹配机型与分区的镜像；sysupgrade 不代表适用于原厂首次刷入，勿强刷。\n"
     if lock["profile_id"] == "jdcloud-re-cs-06":
         compression = profile.get("kernel_compression", "lzma").upper()
-        notes += f"\n> RE-CS-06 使用 {compression}/FIT 内核，保留上游 7 MiB 内核区域与 eMMC 布局。"
-        notes += f"升级前确认当前引导器支持 {compression}/FIT；不提供或自动更新引导器，未验证的引导器勿强刷。\n"
+        notes += (f"\n> RE-CS-06 使用 {compression}/FIT 内核，保留上游 7 MiB 内核区域与 eMMC 布局，"
+                  "刷入前请确认引导器兼容。\n")
     if lock["profile_id"].startswith("s20p-"):
         notes += "\n> S20P MTK / MT76 不保证直接互刷。"
         if profile["source"] == "chasey":
