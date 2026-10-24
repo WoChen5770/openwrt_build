@@ -130,7 +130,7 @@ class JDCloudRECS06Tests(unittest.TestCase):
             "autocore", "automount", "cpufreq", "e2fsprogs", "f2fs-tools", "losetup",
             "uboot-envtools", "wpad-openssl", "dnsmasq-full", "tc-tiny",
             "ath12k-firmware-ipq5332-ddwrt", "ath12k-firmware-qcn9274-ddwrt",
-            "ipq-wifi-jdcloud_re-cs-06", "kmod-ath12k", "kmod-qcom-ppe",
+            "kmod-ath12k", "kmod-qcom-ppe",
             "kmod-qcom-qmi-helpers", "kmod-qrtr-mhi", "kmod-qrtr-smd", "kmod-dsa",
             "kmod-dsa-qca8k", "kmod-phy-aquantia", "kmod-phy-qca83xx",
             "kmod-pcs-qcom-ipq9574", "kmod-fs-ext4", "kmod-fs-f2fs",
@@ -143,6 +143,8 @@ class JDCloudRECS06Tests(unittest.TestCase):
         for name in inherited:
             self.assertNotIn("PACKAGE_" + name, self.values, name)
             self.assertIn(name, gate_packages, name)
+        self.assertEqual(self.values["PACKAGE_ipq-wifi-jdcloud_re-cs-06"], "y")
+        self.assertIn("ipq-wifi-jdcloud_re-cs-06", gate_packages)
 
     def test_proxy_and_offload_dependencies_preserved(self):
         for name in ("kmod-nf-flow", "kmod-nf-nat", "kmod-nft-nat", "kmod-nft-offload",
