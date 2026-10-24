@@ -1,0 +1,33 @@
+Allow tagged PPPoE over the QCA4B persistent virtual port.
+
+The QCA4B data path already maps the WAN user port to a persistent VP and
+the PPE PPPoE session table matches the session ID and peer address on that
+VP. Requiring a physical-port VLAN VSI for the same session rejects every
+tagged PPPoE flow on RE-CS-06 before any hardware flow is installed.
+
+Keep the VLAN VSI requirement for physical underlays, but let a QCA4B VP
+carry tagged PPPoE directly.
+
+--- a/target/linux/qualcommbe/patches-6.18/0652-net-ethernet-qualcomm-ppe-manage-dsa-pppoe-flow-lifecycle.patch
++++ b/target/linux/qualcommbe/patches-6.18/0652-net-ethernet-qualcomm-ppe-manage-dsa-pppoe-flow-lifecycle.patch
+@@ -604,16 +604,16 @@
+ +	 * The caller already holds its flow's VP reference.
+ +	 */
+ +	if (vp >= 0) {
+-+		/* VLAN-over-VP needs VP translation rules, not a physical rule. */
+-+		if (session->svid >= 0 || session->cvid >= 0)
+-+			return -EOPNOTSUPP;
+++		/* QCA4B already owns the user-port identity in the VP; the
+++		 * PPPoE session table matches SID and peer on that VP, so no
+++		 * physical-port VLAN VSI is required for this tagged underlay. */
+ +		ret = ppe_vp_ref_qca4b(ft->ppe_dev, vp, session->port);
+ +		if (ret)
+ +			return ret;
+  	}
+  
+ -	return -ENOENT;
+-+	if (session->svid >= 0 || session->cvid >= 0) {
+++	if (vp < 0 && (session->svid >= 0 || session->cvid >= 0)) {
+ +		vlan = ppe_ft_vlan_get(ft, session->port, session->svid,
+ +				       session->cvid, session->vlan_mtu,
+ +				       session->keep_svid,

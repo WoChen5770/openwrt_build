@@ -44,7 +44,10 @@ def latest_jobs(repository, run):
     latest = {}
     for page in pages:
         for job in page['jobs']:
-            match = re.fullmatch(r'([a-z0-9-]+) / (compile|publish)(?: / \2)?', job['name'])
+            # Matrix display names may include the kernel compression variant.
+            match = re.fullmatch(
+                r'([a-z0-9-]+)(?: / [a-z0-9-]+)? / (compile|publish)(?: / \2)?',
+                job['name'])
             if not match:
                 match = re.match(r'^build \(([^,]+),.*? / (compile|publish)(?: / \2)?$', job['name'])
             if not match:
@@ -134,6 +137,11 @@ def release_assets(directory, info):
     return sorted(directory / name for name in names)
 
 
+def release_title(profile_id, profile, built_at):
+    name = profile.get('release_name') or profile.get('display_name', profile_id)
+    return name if profile.get('release_name') else name + ' · ' + built_at[:10]
+
+
 def publish(directory):
     repository, repo, run = context()
     profile = os.environ['PROFILE']
@@ -180,7 +188,8 @@ def publish(directory):
             # A historical CI SHA can require workflows:write after main changes.
             # Target the default branch; record the true build SHA separately above.
             subprocess.run(['gh', 'release', 'create', tag, *map(str, assets), '--draft',
-                            '--target', repo['default_branch'], '--title', profiles[profile].get('display_name', profile) + ' · ' + info['built_at'][:10],
+                            '--target', repo['default_branch'], '--title',
+                            release_title(profile, profiles[profile], info['built_at']),
                             '--notes-file', str(notes_file), '--repo', repository], check=True)
     subprocess.run(['gh', 'release', 'edit', tag, '--draft=false', '--repo', repository], check=True)
     print('Published: https://github.com/' + repository + '/releases/tag/' + tag)

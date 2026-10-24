@@ -22,7 +22,7 @@ cache_keep_generations = 1
 cache_min_age_days = 0
 
 # 每个 workflow 保留的运行记录数
-workflow_runs_keep_per_workflow = 1
+workflow_runs_keep_per_workflow = 3
 
 # 运行记录保护天数，0 表示超过保留数后立即清理
 workflow_runs_min_age_days = 0

@@ -1,0 +1,17 @@
+Use the existing LZMA/FIT template to leave room for BTF without changing
+the RE-CS-06 kernel slot or eMMC image layout. Requires LZMA/FIT in U-Boot.
+
+--- a/target/linux/qualcommbe/image/ipq53xx.mk
++++ b/target/linux/qualcommbe/image/ipq53xx.mk
+@@ -76,10 +76,10 @@
+ define Device/jdcloud_re-cs-06
+-	$(call Device/FitImage)
++	$(call Device/FitImageLzma)
+ 	$(call Device/EmmcImage)
+ 	DEVICE_VENDOR := JDCloud
+ 	DEVICE_MODEL := RE-CS-06
+ 	DEVICE_DTS_CONFIG := config@mi01.6
+ 	KERNEL_SIZE := 7168k
+ 	SOC := ipq5322
+ 	SUPPORTED_DEVICES += jdcloud,re-cs-06
+ 	DEVICE_PACKAGES := ipq-wifi-jdcloud_re-cs-06

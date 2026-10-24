@@ -1,0 +1,61 @@
+Expose the eMMC MAC cells through the GPT ART partition.
+
+The vendor GPT labels this partition "0:ART" and the kernel expects a
+gpt-partitions node directly below mmc-card. The old block/factory layout
+uses the legacy partition matching path and never registers the NVMEM
+provider, leaving qcom-ppe in deferred probe without wired Ethernet ports.
+
+--- a/target/linux/qualcommbe/dts/ipq5322-re-cs-06.dts
++++ b/target/linux/qualcommbe/dts/ipq5322-re-cs-06.dts
+@@ -1,32 +1,30 @@
+ 	card@0 {
+ 		compatible = "mmc-card";
+ 		reg = <0>;
+ 
+-		block {
+-			compatible = "block-device";
++		partitions {
++			compatible = "gpt-partitions";
+ 
+-			partitions {
+-				block-partition-factory {
+-					partname = "factory";
++			block-partition-art {
++				partname = "0:ART";
+ 
+-					nvmem-layout {
+-						compatible = "fixed-layout";
+-						#address-cells = <1>;
+-						#size-cells = <1>;
++				nvmem-layout {
++					compatible = "fixed-layout";
++					#address-cells = <1>;
++					#size-cells = <1>;
+ 
+-						lan_macaddr: macaddr@0 {
+-							compatible = "mac-base";
+-							reg = <0x0 0x6>;
+-							#nvmem-cell-cells = <1>;
+-						};
++					lan_macaddr: macaddr@0 {
++						compatible = "mac-base";
++						reg = <0x0 0x6>;
++						#nvmem-cell-cells = <1>;
++					};
+ 
+-						wan_macaddr: macaddr@6 {
+-							compatible = "mac-base";
+-							reg = <0x6 0x6>;
+-							#nvmem-cell-cells = <1>;
+-						};
+-					};
++					wan_macaddr: macaddr@6 {
++						compatible = "mac-base";
++						reg = <0x6 0x6>;
++						#nvmem-cell-cells = <1>;
++					};
+ 				};
+ 			};
+ 		};
+ 	};
+ };

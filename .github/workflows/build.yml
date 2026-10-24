@@ -1,4 +1,5 @@
 name: Build firmware
+run-name: Build firmware / ${{ inputs.profile || 'all' }}
 
 on:
   workflow_dispatch:
@@ -68,7 +69,7 @@ jobs:
           retention-days: 14
           if-no-files-found: error
   compile:
-    name: ${{ matrix.profile }} / compile
+    name: ${{ matrix.profile }} / ${{ matrix.kernel_compression }} / compile
     needs: plan
     if: needs.plan.outputs.has_builds == 'true'
     runs-on: ubuntu-24.04
@@ -81,7 +82,7 @@ jobs:
       max-parallel: ${{ fromJSON(needs.plan.outputs.max_parallel) }}
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     concurrency:
-      group: firmware-${{ matrix.profile }}
+      group: ${{ matrix.concurrency_group }}
       cancel-in-progress: false
     defaults:
       run:
@@ -223,6 +224,18 @@ jobs:
         run: |
           mkdir -p logs
           if [[ -f "$SOURCE_DIR/.config" ]]; then cp "$SOURCE_DIR/.config" logs/config.full; fi
+          shopt -s nullglob
+          for kernel in "$SOURCE_DIR"/build_dir/target-*/linux-*/linux-*; do
+            [[ -f "$kernel/.config" ]] || continue
+            label="$(basename "$(dirname "$kernel")")-$(basename "$kernel")"
+            cp "$kernel/.config" "logs/kernel-config-$label"
+            if [[ -f "$kernel/vmlinux" ]]; then
+              readelf -SW "$kernel/vmlinux" > "logs/kernel-sections-$label.log" 2>&1 || true
+            fi
+          done
+          if [[ -d "$SOURCE_DIR/build_dir" ]]; then
+            find "$SOURCE_DIR/build_dir" -type f \( -name vmlinux -o -name 'Image*' -o -name '*.itb' -o -name '*.dtb' \) -printf '%s %P\n' | sort -k2 > logs/kernel-sizes.log
+          fi
           if [[ -d "$SOURCE_DIR/logs" ]]; then cp -R "$SOURCE_DIR/logs" logs/upstream; fi
           if [[ -d "$SOURCE_DIR/.ccache" ]]; then
             CCACHE_DIR="$SOURCE_DIR/.ccache" ccache --show-stats 2>&1 | tee logs/ccache.log

@@ -24,6 +24,8 @@
 | 超级网关S20P · MTK | 闭源无线 · HNAT / WARP · TurboACC / eQoS<br>PassWall（Xray-only）· daed / honk · EasyTier · AdGuard Home | [chasey-dev / 25.12](https://github.com/chasey-dev/immortalwrt-mt798x-rebase/tree/25.12) |
 | 京东云无线宝赵云 · JDCloud RE-CS-06 | ath12k · PPE · Mesh / DAWN · BBR / fq<br>PassWall（Xray-only）· daed / honk · EasyTier · AdGuard Home | [VIKINGYFY / owrt](https://github.com/VIKINGYFY/immortalwrt/tree/owrt) |
 
+> 赵云（构建选项 `jdcloud-re-cs-06`）适配 2G 大分区，使用 LZMA/FIT 内核并保留上游 7 MiB 内核区域与 eMMC 布局，刷入前请确认引导器兼容。
+
 ## 默认设置
 
 | 项目 | 设置 |
@@ -45,7 +47,7 @@
 | 固件发布 | 同一工作流内默认发布成功机型的 Release；可通过 `publish=false` 关闭 |
 | 版本标识 | LuCI 固件版本显示仓库所有者、北京时间（编译开始）；镜像文件名带机型、同一时间和运行编号 |
 | 升级页面 | 恢复出厂 / 不保留配置升级后重连默认管理 IP；保留配置升级仍沿用当前地址 |
-| 自动清理 | 构建与发布流程结束后自动执行，每日北京时间 **02:30** 兜底；每机型保留 1 个正式 Release，缓存按组 / 机型及类型保留 1 代，每个 workflow 保留最近 1 次运行记录 |
+| 自动清理 | 构建与发布流程结束后自动执行，每日北京时间 **02:30** 兜底；每机型保留 1 个正式 Release，缓存按组 / 机型及类型保留 1 代，每个 workflow 保留最近 3 次运行记录（便于对比构建） |
 
 
 ### 工作流
@@ -107,6 +109,5 @@ CONFIG_PACKAGE_samba4=y
 | :--- | :--- |
 | 默认设置 | 首次使用请修改管理与 Wi-Fi 密码；保留配置升级沿用原有设置 |
 | 固件选择 | 核对机型、引导器与分区；S20P / 7DR7299 的 MTK 与 MT76 版不保证100%直接互刷 |
-| 赵云 RE-CS-06 | 构建选项为 `jdcloud-re-cs-06`；仅适用于 RE-CS-06，非 RE-CS-08；首次刷入须核对引导器与 eMMC 分区，勿将 sysupgrade 当作原厂首次刷入包 |
 
 </details>
