@@ -369,7 +369,7 @@ network_tuning = true
 # 完整机型配置；第三方插件与 S20P MT76 对齐
 config = "Config/JDCLOUD-RE-CS-06.txt"
 
-# 保留 7 MiB 内核区域，用 LZMA 压缩容纳 BTF；从 eMMC factory 分区读取 MAC
+# 保留 7 MiB 内核区域，用 LZMA 压缩容纳 BTF；从 eMMC GPT 的 0:ART 分区读取 MAC
 kernel_compression = "lzma"
 patches = [
   "Scripts/Patches/jdcloud-re-cs-06-lzma-kernel.patch",

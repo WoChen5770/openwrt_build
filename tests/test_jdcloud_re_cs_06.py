@@ -56,6 +56,20 @@ JDCLOUD_DTS = """&sdhc {
 
 					nvmem-layout {
 						compatible = "fixed-layout";
+						#address-cells = <1>;
+						#size-cells = <1>;
+
+						lan_macaddr: macaddr@0 {
+							compatible = "mac-base";
+							reg = <0x0 0x6>;
+							#nvmem-cell-cells = <1>;
+						};
+
+						wan_macaddr: macaddr@6 {
+							compatible = "mac-base";
+							reg = <0x6 0x6>;
+							#nvmem-cell-cells = <1>;
+						};
 					};
 				};
 			};
@@ -172,7 +186,10 @@ class JDCloudRECS06Tests(unittest.TestCase):
             dts.write_text(JDCLOUD_DTS)
             apply_source_patches(tree, compression_profile(self.profile_id, self.profile, "gzip"))
             self.assertEqual(image.read_text(), before)
-            self.assertIn('compatible = "gpt-partitions";', dts.read_text())
+            patched_dts = dts.read_text()
+            self.assertIn('compatible = "gpt-partitions";', patched_dts)
+            self.assertIn('partname = "0:ART";', patched_dts)
+            self.assertNotIn('compatible = "block-device";', patched_dts)
 
             image.write_text(before)
             dts.write_text(JDCLOUD_DTS)
@@ -181,6 +198,7 @@ class JDCloudRECS06Tests(unittest.TestCase):
                                       "define Device/jdcloud_re-cs-06\n\t$(call Device/FitImageLzma)")
             self.assertEqual(image.read_text(), expected)
             self.assertIn('compatible = "gpt-partitions";', dts.read_text())
+            self.assertIn('partname = "0:ART";', dts.read_text())
 
             image.write_text(before.replace("KERNEL_SIZE := 7168k", "KERNEL_SIZE := 8192k"))
             dts.write_text(JDCLOUD_DTS)
