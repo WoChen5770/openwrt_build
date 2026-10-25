@@ -1,0 +1,87 @@
+--- a/feeds/packages/net/dawn/files/dawn.config
++++ b/feeds/packages/net/dawn/files/dawn.config
+@@ -25,7 +25,7 @@
+ 	option update_hostapd '10'
+ 	option update_tcp_con '10'
+ 	option update_chan_util '5'
+-	option update_beacon_reports '20'
++	option update_beacon_reports '0'
+ 
+ config metric 'global'
+ 	option min_probe_count '3'
+--- a/feeds/packages/net/dawn/files/dawn.init
++++ b/feeds/packages/net/dawn/files/dawn.init
+@@ -13,6 +13,65 @@
+ 	ubus -t 15 wait_for network.interface.$1 2>/dev/null
+ }
+ 
++# New hostapd releases place BSS sockets below a numbered subdirectory.
++# Find the directory with the most BSS sockets before DAWN starts.
++find_hostapd_dir()
++{
++	local base_dir=/var/run/hostapd
++	local best_dir=''
++	local best_count=0
++	local candidate socket socket_count
++
++	[ -d "$base_dir" ] || return 1
++	for candidate in "$base_dir" "$base_dir"/*; do
++		[ -d "$candidate" ] || continue
++		socket_count=0
++		for socket in "$candidate"/*; do
++			[ -S "$socket" ] || continue
++			[ "${socket##*/}" = "global" ] && continue
++			socket_count=$((socket_count + 1))
++		done
++		[ "$socket_count" -gt 0 ] || continue
++		if [ "$socket_count" -gt "$best_count" ]; then
++			best_dir="$candidate"
++			best_count="$socket_count"
++		fi
++	done
++	[ -n "$best_dir" ] || return 1
++	printf '%s\n' "$best_dir"
++}
++
++# Also correct kept-config upgrades: periodic beacon requests crash some
++# DAWN builds, and the hostapd run directory is a property of the firmware.
++apply_runtime_fixes()
++{
++	local changed=0
++	local current
++	local hostapd_dir
++	local section
++
++	hostapd_dir="$(find_hostapd_dir 2>/dev/null || true)"
++	if [ -n "$hostapd_dir" ]; then
++		for section in $(uci show dawn | sed -n 's/^dawn\.\([^.=]*\)=hostapd$/\1/p'); do
++			current="$(uci -q get "dawn.$section.hostapd_dir" || true)"
++			if [ "$current" != "$hostapd_dir" ]; then
++				uci set "dawn.$section.hostapd_dir=$hostapd_dir" || return 1
++				changed=1
++			fi
++		done
++	fi
++
++	for section in $(uci show dawn | sed -n 's/^dawn\.\([^.=]*\)=times$/\1/p'); do
++		current="$(uci -q get "dawn.$section.update_beacon_reports" || true)"
++		if [ "$current" != "0" ]; then
++			uci set "dawn.$section.update_beacon_reports=0" || return 1
++			changed=1
++		fi
++	done
++
++	[ "$changed" -eq 0 ] || uci commit dawn
++}
++
+ boot()
+ {
+ 	ubus -t 5 wait_for umdns 2>/dev/null
+@@ -40,6 +99,7 @@
+ 	local _tcp_buffer
+ 	local _network_option
+ 
++	apply_runtime_fixes
+ 	config_load dawn
+ 	load_tcp_config() {
+ 		config_get _tcp_buffer "$1" tcp_port

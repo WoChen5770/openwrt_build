@@ -26,6 +26,7 @@ hostname = "7DR7299-MT76"
 network_tuning = true
 ccache_group = "viking-filogic"
 ccache_priority = 30
+patches = ["Scripts/Patches/dawn-runtime-fixes.patch"]
 
 # 完整机型配置
 config = "Config/TPLINK-7DR7299-MT76.txt"
@@ -230,6 +231,7 @@ variant = "ath12k"
 legacy_name = "XIAOMI-BE6500"
 hostname = "XIAOMI-BE6500"
 network_tuning = true
+patches = ["Scripts/Patches/dawn-runtime-fixes.patch"]
 
 # 完整机型配置
 config = "Config/XIAOMI-BE6500.txt"
@@ -280,6 +282,7 @@ hostname = "TENDA-BE12-PRO"
 network_tuning = true
 ccache_group = "viking-filogic"
 ccache_priority = 10
+patches = ["Scripts/Patches/dawn-runtime-fixes.patch"]
 
 # 完整机型配置
 config = "Config/TENDA-BE12-PRO.txt"
@@ -328,6 +331,7 @@ hostname = "S20P-MT76"
 network_tuning = true
 ccache_group = "viking-filogic"
 ccache_priority = 20
+patches = ["Scripts/Patches/dawn-runtime-fixes.patch"]
 
 # 完整机型配置
 config = "Config/SUPERGATEWAY-S20P-MT76.txt"
@@ -373,6 +377,7 @@ config = "Config/JDCLOUD-RE-CS-06.txt"
 # 保留 7 MiB 内核区域，用 LZMA 压缩容纳 BTF；从 eMMC GPT 的 0:ART 分区读取 MAC
 kernel_compression = "lzma"
 patches = [
+  "Scripts/Patches/dawn-runtime-fixes.patch",
   "Scripts/Patches/jdcloud-re-cs-06-lzma-kernel.patch",
   "Scripts/Patches/jdcloud-re-cs-06-emmc-mac-nvmem.patch",
   "Scripts/Patches/jdcloud-re-cs-06-qca4b-pppoe.patch",
@@ -484,7 +489,6 @@ required_image_packages = [
   "luci-app-daede",
   "luci-app-easytier",
   "luci-app-honk",
-  "luci-app-mesh",
   "luci-app-passwall",
   "luci-app-upnp",
   "luci-app-wolultra",

@@ -145,7 +145,7 @@ def required_for(profile_id, profile, values=None):
                      "TARGET_DEVICE_" + profile["target"] + "_" + profile["subtarget"] + "_DEVICE_" + profile["device"],
                      "PACKAGE_luci", "PACKAGE_luci-ssl-openssl", "PACKAGE_luci-theme-shadcn"))
     # Guard user-visible features, rather than allowing defconfig to silently drop them.
-    for option in ("PACKAGE_luci-app-mesh", "PACKAGE_kmod-batman-adv", "PACKAGE_wpad-openssl",
+    for option in ("PACKAGE_kmod-batman-adv", "PACKAGE_wpad-openssl",
                    "PACKAGE_MAC80211_MESH", "PACKAGE_dawn", "PACKAGE_umdns", "PACKAGE_luci-app-passwall",
                    "PACKAGE_xray-core", "PACKAGE_luci-app-passwall_INCLUDE_Xray",
                    "PACKAGE_luci-app-daede", "PACKAGE_daed", "PACKAGE_honk",
@@ -169,7 +169,12 @@ def validate_config(profile_id, profile, content, selections=None):
     for key, expected_value in profile.get("expected_config", {}).items():
         if values.get(key) != expected_value:
             errors.append("Expected CONFIG_" + key + "=" + expected_value + "; got " + values.get(key, "<missing>"))
-    forbidden = set(profile["forbidden"]) | {"PACKAGE_bandix", "PACKAGE_luci-app-bandix", "PACKAGE_wpad-mesh-openssl"}
+    forbidden = set(profile["forbidden"]) | {
+        "PACKAGE_bandix",
+        "PACKAGE_luci-app-bandix",
+        "PACKAGE_luci-app-mesh",
+        "PACKAGE_wpad-mesh-openssl",
+    }
     # Preserve exclusions after applying private and temporary package overrides.
     forbidden.update(key for key, value in selections.items() if key.startswith("PACKAGE_") and value == "n")
     errors += ["Forbidden CONFIG_" + key for key in sorted(forbidden) if values.get(key) in ("y", "m")]
@@ -904,7 +909,7 @@ def validate_image_packages(target, profile, profile_id=None):
     missing = sorted(required - installed)
     if missing:
         raise ValueError("Firmware is missing packages: " + ", ".join(missing))
-    forbidden = sorted(installed & set(profile.get("forbidden_image_packages", [])))
+    forbidden = sorted(installed & (set(profile.get("forbidden_image_packages", [])) | {"luci-app-mesh"}))
     if forbidden:
         raise ValueError("Firmware contains forbidden packages: " + ", ".join(forbidden))
     print("Package manifest verified: " + manifest.name)
