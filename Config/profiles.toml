@@ -295,6 +295,7 @@ required = [
   "PACKAGE_mt7987-2p5g-phy-firmware",
   "PACKAGE_airoha-en8811h-firmware",
   "PACKAGE_kmod-phy-airoha-en8811h",
+  "PACKAGE_luci-app-fakemesh",
 ]
 
 # 固件必需包
@@ -305,6 +306,7 @@ required_image_packages = [
   "mt7987-2p5g-phy-firmware",
   "airoha-en8811h-firmware",
   "kmod-phy-airoha-en8811h",
+  "luci-app-fakemesh",
 ]
 
 # 固件禁用包
@@ -419,6 +421,7 @@ required = [
   "PACKAGE_kmod-usb-storage-extras",
   "PACKAGE_kmod-usb-storage-uas",
   "PACKAGE_firewall4",
+  "PACKAGE_luci-app-fakemesh",
   "PACKAGE_kmod-nf-conntrack",
   "PACKAGE_kmod-nf-flow",
   "PACKAGE_kmod-nf-nat",
@@ -467,6 +470,7 @@ required_image_packages = [
   "kmod-usb-storage-extras",
   "kmod-usb-storage-uas",
   "firewall4",
+  "luci-app-fakemesh",
   "kmod-nf-conntrack",
   "kmod-nf-flow",
   "kmod-nf-nat",

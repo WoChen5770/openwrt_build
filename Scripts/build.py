@@ -431,14 +431,17 @@ def remove_packages(tree, names):
 
 def integrate(lock, tree):
     env = {**os.environ, "GITHUB_WORKSPACE": str(ROOT), "WRT_CONFIG": lock["profile"]["legacy_name"]}
+    special_packages = {
+        "mesh": ("Mesh.sh", "MESH_COMMIT"),
+        "honk": ("Honk.sh", "HONK_COMMIT"),
+        "fakemesh": ("Fakemesh.sh", "FAKEMESH_COMMIT"),
+    }
     for name, package in lock["packages"].items():
         mode = package["mode"]
-        if mode in ("mesh", "honk"):
-            if mode == "mesh":
-                env["MESH_COMMIT"] = package["commit"]
-            else:
-                env["HONK_COMMIT"] = package["commit"]
-            run("bash", str(ROOT / "Scripts" / ("Mesh.sh" if mode == "mesh" else "Honk.sh")), cwd=tree, env=env)
+        if mode in special_packages:
+            script, commit_env = special_packages[mode]
+            env[commit_env] = package["commit"]
+            run("bash", str(ROOT / "Scripts" / script), cwd=tree, env=env)
             continue
         with tempfile.TemporaryDirectory(prefix="owrt-package-") as temporary:
             clone = Path(temporary) / "source"
