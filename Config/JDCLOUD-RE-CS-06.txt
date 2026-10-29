@@ -77,5 +77,7 @@ CONFIG_PACKAGE_xray-core=y
 
 # 界面
 CONFIG_LUCI_LANG_zh_Hans=y
+CONFIG_PACKAGE_luci-app-vantage=y
 CONFIG_PACKAGE_luci-ssl-openssl=y
 CONFIG_PACKAGE_luci-theme-shadcn=y
+CONFIG_PACKAGE_luci-theme-vantage=y

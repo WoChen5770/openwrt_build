@@ -34,7 +34,7 @@
 | 管理账号 | `root` · 默认空密码 |
 | Wi-Fi | `ImmortalWrt` · 密码 `12345678` |
 | 漫游 | DAWN · 802.11k/v/r；不集成 `luci-app-mesh` |
-| 界面 | shadcn · 简体中文 |
+| 界面 | shadcn（默认）· Vantage 主题 / Dashboard 可选 · 简体中文 |
 | 时区 | Asia/Shanghai |
 
 

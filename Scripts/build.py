@@ -143,7 +143,8 @@ def required_for(profile_id, profile, values=None):
     required = set(profile["required"])
     required.update(("TARGET_" + profile["target"], "TARGET_" + profile["target"] + "_" + profile["subtarget"],
                      "TARGET_DEVICE_" + profile["target"] + "_" + profile["subtarget"] + "_DEVICE_" + profile["device"],
-                     "PACKAGE_luci", "PACKAGE_luci-ssl-openssl", "PACKAGE_luci-theme-shadcn"))
+                     "PACKAGE_luci", "PACKAGE_luci-ssl-openssl", "PACKAGE_luci-theme-shadcn",
+                     "PACKAGE_luci-theme-vantage", "PACKAGE_luci-app-vantage"))
     # Guard user-visible features, rather than allowing defconfig to silently drop them.
     for option in ("PACKAGE_kmod-batman-adv", "PACKAGE_wpad-openssl",
                    "PACKAGE_MAC80211_MESH", "PACKAGE_dawn", "PACKAGE_umdns", "PACKAGE_luci-app-passwall",

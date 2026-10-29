@@ -490,8 +490,10 @@ required_image_packages = [
   "luci-app-honk",
   "luci-app-passwall",
   "luci-app-upnp",
+  "luci-app-vantage",
   "luci-app-wolultra",
   "luci-theme-shadcn",
+  "luci-theme-vantage",
   "umdns",
   "xray-core",
 ]
