@@ -19,10 +19,10 @@
 | TL-7DR7299 · MT76 | 开源无线 · DAWN · BBR / fq<br>PassWall（Xray-only）· daed / honk · EasyTier · AdGuard Home | [VIKINGYFY / owrt](https://github.com/VIKINGYFY/immortalwrt/tree/owrt) |
 | TL-7DR7299 · MTK | 闭源无线 · HNAT / WARP · TurboACC / eQoS<br>PassWall（Xray-only）· daed / honk · EasyTier · AdGuard Home | [padavanonly / 6.6-mtwifi](https://github.com/padavanonly/immortalwrt-mt798x-6.6/tree/mt798x-mt799x-6.6-mtwifi) |
 | Xiaomi BE6500 | ath12k · PPE · DAWN · BBR / fq | [VIKINGYFY / owrt](https://github.com/VIKINGYFY/immortalwrt/tree/owrt) |
-| Tenda BE12 Pro | MT76 · DAWN · FakeMesh（默认关闭）· BBR / fq | [VIKINGYFY / owrt](https://github.com/VIKINGYFY/immortalwrt/tree/owrt) |
+| Tenda BE12 Pro | MT76 · DAWN / usteer · FakeMesh（默认关闭）· BBR / fq | [VIKINGYFY / owrt](https://github.com/VIKINGYFY/immortalwrt/tree/owrt) |
 | 超级网关S20P · MT76 | 开源无线 · DAWN · BBR / fq<br>PassWall（Xray-only）· daed / honk · EasyTier · AdGuard Home | [VIKINGYFY / owrt](https://github.com/VIKINGYFY/immortalwrt/tree/owrt) |
 | 超级网关S20P · MTK | 闭源无线 · HNAT / WARP · TurboACC / eQoS<br>PassWall（Xray-only）· daed / honk · EasyTier · AdGuard Home | [chasey-dev / 25.12](https://github.com/chasey-dev/immortalwrt-mt798x-rebase/tree/25.12) |
-| 京东云无线宝赵云 · JDCloud RE-CS-06 | ath12k · PPE · DAWN · FakeMesh（默认关闭）· BBR / fq<br>PassWall（Xray-only）· daed / honk · EasyTier · AdGuard Home | [VIKINGYFY / owrt](https://github.com/VIKINGYFY/immortalwrt/tree/owrt) |
+| 京东云无线宝赵云 · JDCloud RE-CS-06 | ath12k · PPE · DAWN / usteer · FakeMesh（默认关闭）· BBR / fq<br>PassWall（Xray-only）· daed / honk · EasyTier · AdGuard Home | [VIKINGYFY / owrt](https://github.com/VIKINGYFY/immortalwrt/tree/owrt) |
 
 > 赵云（构建选项 `jdcloud-re-cs-06`）适配 2G 大分区，使用 LZMA/FIT 内核并保留上游 7 MiB 内核区域与 eMMC 布局，刷入前请确认引导器兼容。
 
@@ -33,7 +33,7 @@
 | 管理入口 | `192.168.123.1` · HTTP / HTTPS |
 | 管理账号 | `root` · 默认空密码 |
 | Wi-Fi | `ImmortalWrt` · 密码 `12345678` |
-| 组网与漫游 | DAWN · 802.11k/v/r；Tenda / 赵云集成 FakeMesh（默认关闭）；不集成 `luci-app-mesh` |
+| 组网与漫游 | DAWN · 802.11k/v/r；Tenda / 赵云预装 usteer 并集成 FakeMesh（默认关闭） |
 | 界面 | shadcn（默认）· Vantage 主题 / Dashboard 可选 · 简体中文 |
 | 时区 | Asia/Shanghai |
 
@@ -43,7 +43,8 @@
 | 项目 | 说明 |
 | :--- | :--- |
 | 手动构建 | [Run workflow](https://github.com/WoChen5770/openwrt_build/actions/workflows/build.yml) · 单机型或 `all` 并行 |
-| 自动构建 | 每日北京时间 **04:15** 检查主源码或本仓库配置/脚本，有更新才构建 |
+| 自动构建 | 每日北京时间 **03:00** 检查主源码、插件上游或本仓库配置/脚本，有更新才构建 |
+| 第三方插件 | 每次构建解析上游分支最新 SHA；同一次构建内锁定，插件更新也会触发自动构建 |
 | 缓存加速 | 按兼容组共享 ccache 与 host / 工具链，机型独立 hostpkg；下载文件不缓存 |
 | 固件发布 | 同一工作流内默认发布成功机型的 Release；可通过 `publish=false` 关闭 |
 | 版本标识 | LuCI 固件版本显示仓库所有者、北京时间（编译开始）；镜像文件名带机型、同一时间和运行编号 |
@@ -92,8 +93,8 @@ Scripts/             构建脚本、插件集成及配套资源
 | 下载文件 | 不缓存 `dl`；每次构建通过 `make download` 并行下载，日志见 `logs/download.log` |
 | host / 工具链缓存 | 同一源码、target / subtarget 的机型共享；指纹只包含工具链相关源码和配置 |
 | hostpkg 缓存 | 独立保存软件包宿主工具，额外校验 feeds、插件、配置与集成脚本 |
-| 7DR7299 MTK 的 Go | 仅 dae / daed 使用锁定的独立 Go 1.27 工具链；其他软件包继续使用上游 Go |
-| MTK 服务 | 厂商无线版不集成 DAWN；所有机型默认不集成 `luci-app-mesh`；daed / honk 已集成，默认不启用 |
+| MTK 旧版源码的 Go | 7DR7299 / S20P MTK 的 dae / daed 使用锁定的独立 Go 1.27 工具链；其他软件包继续使用上游 Go |
+| MTK 服务 | 厂商无线版不集成 DAWN；daed / honk 已集成，默认不启用 |
 
 临时选包示例（可多行，也可用字面量 `\n` 分隔）：
 
@@ -109,7 +110,7 @@ CONFIG_PACKAGE_samba4=y
 | 项目 | 说明 |
 | :--- | :--- |
 | 默认设置 | 首次使用请修改管理与 Wi-Fi 密码；保留配置升级沿用原有设置 |
-| FakeMesh | 仅 Tenda BE12 Pro / 赵云集成；默认关闭。刷机后需手动将一个节点设为控制器，其余节点设为卫星或有线 AP |
+| FakeMesh | 仅 Tenda BE12 Pro / 赵云集成；DAWN / usteer 已预装，默认关闭，可在 FakeMesh 中二选一；usteer 仅核心包，不含 LuCI。刷机后需手动将一个节点设为控制器，其余节点设为卫星或有线 AP |
 | 固件选择 | 核对机型、引导器与分区；S20P / 7DR7299 的 MTK 与 MT76 版不保证100%直接互刷 |
 
 </details>

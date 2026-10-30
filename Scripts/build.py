@@ -348,15 +348,6 @@ def plan(args):
             source = specs["sources"][source_id]
             if source_id not in source_commits:
                 source_commits[source_id] = resolve(source["repository"], source["branch"], args.commit)
-            current_source = {**source, "commit": source_commits[source_id]}
-            if args.event == "schedule" and not overrides:
-                # Releases arrive newest first. Compare the latest successful version per device.
-                latest = next((r for r in known if r["tag_name"].startswith(profile_id + "-")), None)
-                if (latest and source_marker(current_source) in (latest.get("body") or "")
-                        and "<!-- build-ci:" + code_hash + " -->" in (latest.get("body") or "")
-                        and config_marker(config_for(profile)) in (latest.get("body") or "")):
-                    print("Source unchanged: " + profile_id)
-                    continue
             if source_id not in sources:
                 commit = source_commits[source_id]
                 slug = source["repository"].removeprefix("https://github.com/").removesuffix(".git")
@@ -381,7 +372,14 @@ def plan(args):
                 lock["xray"] = xray_lock(profile_id)
             lock["fingerprint"] = hashlib.sha256(json.dumps(lock, sort_keys=True).encode()).hexdigest()
             marker = "<!-- build-fingerprint:" + lock["fingerprint"] + " -->"
-            if args.event != "schedule" and any(r["tag_name"].startswith(profile_id + "-") and marker in (r.get("body") or "") for r in known):
+            if args.event == "schedule":
+                # The fingerprint includes the package commits resolved from upstream branches.
+                latest = next((r for r in known if r["tag_name"].startswith(profile_id + "-")), None)
+                unchanged = bool(latest and marker in (latest.get("body") or ""))
+            else:
+                unchanged = any(r["tag_name"].startswith(profile_id + "-")
+                                and marker in (r.get("body") or "") for r in known)
+            if unchanged:
                 print("Unchanged: " + profile_id)
                 continue
             write_json(output / (profile_id + ".json"), lock)
@@ -1012,7 +1010,7 @@ def release_notes(lock, identity=None, config_name="Config-*.txt"):
     if lock["profile_id"].startswith("s20p-"):
         notes += "\n> S20P MTK / MT76 不保证直接互刷。"
         if profile["source"] == "chasey":
-            notes += "不集成 luci-app-mesh（厂商无线驱动未上报 mesh point 能力）；daed / honk 默认关闭，HNAT / WARP 与透明代理需验证兼容性。"
+            notes += "daed / honk 默认关闭，HNAT / WARP 与透明代理需验证兼容性。"
         notes += "\n"
     if lock["profile_id"].startswith("7dr7299-"):
         notes += "\n> 仅适用于 TP-Link TL-7DR7299 v1。MT76 / MTK 的引导器及分区布局需分别核对，不保证直接互刷。"

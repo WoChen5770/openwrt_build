@@ -1,5 +1,5 @@
 #!/bin/bash
-# Supported proxy profiles: install pinned packages alongside daed, without enabling honk.
+# Supported proxy profiles: install upstream packages alongside daed, without enabling honk.
 set -euo pipefail
 
 case "${WRT_CONFIG:-}" in
@@ -14,8 +14,7 @@ for HONK_ROOT in ./package ./feeds/luci ./feeds/packages; do
 	fi
 done
 
-# Keep the LuCI package and its prebuilt native-api core on the same reviewed snapshot.
-# Core: debug.2026.10.9.native-api.2; honk 2026.10.9_beta2; LuCI 2.0.0-r3.
+# Keep the LuCI package and its prebuilt native-api core on the same resolved revision.
 HONK_REPO="https://github.com/189160/luci-app-honk.git"
 HONK_REF="${HONK_COMMIT:?HONK_COMMIT must come from the build plan}"
 HONK_TMP=$(mktemp -d)
@@ -34,7 +33,7 @@ for HONK_FILE in honk/Makefile honk/files/honk.config honk/files/honk.init \
 done
 
 # Validate, rather than rewrite, upstream runtime defaults. Never run the installer
-# or version updater: the pinned Makefile already supplies the binary URL and hash.
+# or version updater: the resolved Makefile already supplies the binary URL and hash.
 grep -Eq "^[[:space:]]*option[[:space:]]+enabled[[:space:]]+'0'[[:space:]]*$" \
 	"$HONK_TMP/source/honk/files/honk.config"
 if grep -Eq '^[[:space:]]*native_api[[:space:]]*\{' "$HONK_TMP/source/honk/files/config.d/api.dae"; then

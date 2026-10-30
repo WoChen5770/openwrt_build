@@ -296,6 +296,7 @@ required = [
   "PACKAGE_airoha-en8811h-firmware",
   "PACKAGE_kmod-phy-airoha-en8811h",
   "PACKAGE_luci-app-fakemesh",
+  "PACKAGE_usteer",
 ]
 
 # 固件必需包
@@ -307,6 +308,7 @@ required_image_packages = [
   "airoha-en8811h-firmware",
   "kmod-phy-airoha-en8811h",
   "luci-app-fakemesh",
+  "usteer",
 ]
 
 # 固件禁用包
@@ -422,6 +424,7 @@ required = [
   "PACKAGE_kmod-usb-storage-uas",
   "PACKAGE_firewall4",
   "PACKAGE_luci-app-fakemesh",
+  "PACKAGE_usteer",
   "PACKAGE_kmod-nf-conntrack",
   "PACKAGE_kmod-nf-flow",
   "PACKAGE_kmod-nf-nat",
@@ -471,6 +474,7 @@ required_image_packages = [
   "kmod-usb-storage-uas",
   "firewall4",
   "luci-app-fakemesh",
+  "usteer",
   "kmod-nf-conntrack",
   "kmod-nf-flow",
   "kmod-nf-nat",

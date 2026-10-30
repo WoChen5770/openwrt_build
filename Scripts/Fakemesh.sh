@@ -1,5 +1,5 @@
 #!/bin/bash
-# Supported open-driver profiles: install a pinned FakeMesh snapshot.
+# Supported open-driver profiles: install the latest resolved FakeMesh revision.
 set -euo pipefail
 
 case "${WRT_CONFIG:-}" in
