@@ -12,6 +12,12 @@ wifi_password = "12345678"
 # 无线加密
 wifi_encryption = "psk2"
 
+# 无线国家代码
+wifi_country = "US"
+
+# 5GHz 默认信道宽度；仅当无线驱动支持 160MHz 时生效
+wifi_5g_width = 160
+
 # 关闭无线
 wifi_disabled = false
 

@@ -19,10 +19,10 @@
 | TL-7DR7299 · MT76 | 开源无线 · DAWN · BBR / fq<br>PassWall（Xray-only）· daed / honk · EasyTier · AdGuard Home | [VIKINGYFY / owrt](https://github.com/VIKINGYFY/immortalwrt/tree/owrt) |
 | TL-7DR7299 · MTK | 闭源无线 · HNAT / WARP · TurboACC / eQoS<br>PassWall（Xray-only）· daed / honk · EasyTier · AdGuard Home | [padavanonly / 6.6-mtwifi](https://github.com/padavanonly/immortalwrt-mt798x-6.6/tree/mt798x-mt799x-6.6-mtwifi) |
 | Xiaomi BE6500 | ath12k · PPE · DAWN · BBR / fq | [VIKINGYFY / owrt](https://github.com/VIKINGYFY/immortalwrt/tree/owrt) |
-| Tenda BE12 Pro | MT76 · DAWN / usteer · FakeMesh（默认关闭）· BBR / fq | [VIKINGYFY / owrt](https://github.com/VIKINGYFY/immortalwrt/tree/owrt) |
+| Tenda BE12 Pro | MT76 · DAWN · BBR / fq | [VIKINGYFY / owrt](https://github.com/VIKINGYFY/immortalwrt/tree/owrt) |
 | 超级网关S20P · MT76 | 开源无线 · DAWN · BBR / fq<br>PassWall（Xray-only）· daed / honk · EasyTier · AdGuard Home | [VIKINGYFY / owrt](https://github.com/VIKINGYFY/immortalwrt/tree/owrt) |
 | 超级网关S20P · MTK | 闭源无线 · HNAT / WARP · TurboACC / eQoS<br>PassWall（Xray-only）· daed / honk · EasyTier · AdGuard Home | [chasey-dev / 25.12](https://github.com/chasey-dev/immortalwrt-mt798x-rebase/tree/25.12) |
-| 京东云无线宝赵云 · JDCloud RE-CS-06 | ath12k · PPE · DAWN / usteer · FakeMesh（默认关闭）· BBR / fq<br>PassWall（Xray-only）· daed / honk · EasyTier · AdGuard Home | [VIKINGYFY / owrt](https://github.com/VIKINGYFY/immortalwrt/tree/owrt) |
+| 京东云无线宝赵云 · JDCloud RE-CS-06 | ath12k · PPE · DAWN · BBR / fq<br>PassWall（Xray-only）· daed / honk · EasyTier · AdGuard Home | [VIKINGYFY / owrt](https://github.com/VIKINGYFY/immortalwrt/tree/owrt) |
 
 > 赵云（构建选项 `jdcloud-re-cs-06`）适配 2G 大分区，使用 LZMA/FIT 内核并保留上游 7 MiB 内核区域与 eMMC 布局，刷入前请确认引导器兼容。
 
@@ -32,8 +32,8 @@
 | :--- | :--- |
 | 管理入口 | `192.168.123.1` · HTTP / HTTPS |
 | 管理账号 | `root` · 默认空密码 |
-| Wi-Fi | `ImmortalWrt` · 密码 `12345678` |
-| 组网与漫游 | DAWN · 802.11k/v/r；Tenda / 赵云预装 usteer 并集成 FakeMesh（默认关闭） |
+| Wi-Fi | `ImmortalWrt` · 密码 `12345678` · 国家代码 `US` · 5GHz 默认 160MHz（设备支持时） |
+| 组网与漫游 | DAWN · 802.11k/v/r |
 | 界面 | shadcn（默认）· Vantage 主题 / Dashboard 可选 · 简体中文 |
 | 时区 | Asia/Shanghai |
 
@@ -110,7 +110,6 @@ CONFIG_PACKAGE_samba4=y
 | 项目 | 说明 |
 | :--- | :--- |
 | 默认设置 | 首次使用请修改管理与 Wi-Fi 密码；保留配置升级沿用原有设置 |
-| FakeMesh | 仅 Tenda BE12 Pro / 赵云集成；DAWN / usteer 已预装，默认关闭，可在 FakeMesh 中二选一；usteer 仅核心包，不含 LuCI。刷机后需手动将一个节点设为控制器，其余节点设为卫星或有线 AP |
 | 固件选择 | 核对机型、引导器与分区；S20P / 7DR7299 的 MTK 与 MT76 版不保证100%直接互刷 |
 
 </details>
