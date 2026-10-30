@@ -152,6 +152,7 @@ def required_for(profile_id, profile, values=None):
                    "PACKAGE_luci-app-daede", "PACKAGE_daed", "PACKAGE_honk",
                    "PACKAGE_luci-app-honk", "PACKAGE_luci-i18n-honk-zh-cn", "PACKAGE_luci-app-easytier",
                    "PACKAGE_easytier", "PACKAGE_adguardhome", "PACKAGE_luci-app-adguardhome",
+                   "PACKAGE_luci-app-adguardhome-tk",
                    "KERNEL_DEBUG_INFO_BTF", "DAED_USE_KERNEL_BTF", "BPF_TOOLCHAIN_HOST"):
         if values.get(option) == "y":
             required.add(option)

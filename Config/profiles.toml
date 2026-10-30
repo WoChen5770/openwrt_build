@@ -156,6 +156,7 @@ required_image_packages = [
   "datconf-lua",
   "lua-cjson",
   "wireless-tools",
+  "luci-app-adguardhome-tk",
 ]
 
 # 固件禁用包
