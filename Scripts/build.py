@@ -626,10 +626,10 @@ def apply_defaults(tree, values, vendor=False, wireless_defaults=None):
         country = str(values.get("wifi_country", "CN")).upper()
         if not re.fullmatch(r"[A-Z]{2}", country):
             raise ValueError("wifi_country must be a two-letter country code")
-        content, count = re.subn(r"^set \$\{s\}\.country='[^']*'$",
-                                 "set ${s}.country='" + country + "'", content, flags=re.M)
+        content, count = re.subn(r"\bcountry\s*\|\|\s*'[A-Z0-9]{2}'",
+                                 "country || '" + country + "'", content)
         if count != 1:
-            raise ValueError("mac80211 country default changed upstream")
+            raise ValueError("mac80211 country fallback changed upstream")
         path.write_text(content)
     overlay = tree / "files/etc/uci-defaults"
     overlay.mkdir(parents=True, exist_ok=True)
