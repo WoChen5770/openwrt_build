@@ -11,7 +11,7 @@
  	option min_probe_count '3'
 --- a/feeds/packages/net/dawn/files/dawn.init
 +++ b/feeds/packages/net/dawn/files/dawn.init
-@@ -13,6 +13,65 @@
+@@ -13,6 +13,57 @@
  	ubus -t 15 wait_for network.interface.$1 2>/dev/null
  }
  
@@ -43,8 +43,8 @@
 +	printf '%s\n' "$best_dir"
 +}
 +
-+# Also correct kept-config upgrades: periodic beacon requests crash some
-+# DAWN builds, and the hostapd run directory is a property of the firmware.
++# Locate hostapd sockets for both fresh installs and kept-config upgrades.
++# Leave the user's Beacon measurement interval unchanged.
 +apply_runtime_fixes()
 +{
 +	local changed=0
@@ -63,21 +63,13 @@
 +		done
 +	fi
 +
-+	for section in $(uci show dawn | sed -n 's/^dawn\.\([^.=]*\)=times$/\1/p'); do
-+		current="$(uci -q get "dawn.$section.update_beacon_reports" || true)"
-+		if [ "$current" != "0" ]; then
-+			uci set "dawn.$section.update_beacon_reports=0" || return 1
-+			changed=1
-+		fi
-+	done
-+
 +	[ "$changed" -eq 0 ] || uci commit dawn
 +}
 +
  boot()
  {
  	ubus -t 5 wait_for umdns 2>/dev/null
-@@ -40,6 +99,7 @@
+@@ -40,6 +91,7 @@
  	local _tcp_buffer
  	local _network_option
  
