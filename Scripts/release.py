@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Select and publish verified firmware artifacts from the build workflow."""
 import argparse
+from datetime import datetime, timedelta, timezone
 import json
 import os
 from pathlib import Path
@@ -12,6 +13,8 @@ if __package__:
     from .build import ROOT, read_toml
 else:
     from build import ROOT, read_toml
+
+BEIJING_TIME = timezone(timedelta(hours=8))
 
 
 def gh_json(endpoint, paginated=False):
@@ -139,7 +142,10 @@ def release_assets(directory, info):
 
 def release_title(profile_id, profile, built_at):
     name = profile.get('release_name') or profile.get('display_name', profile_id)
-    return name if profile.get('release_name') else name + ' · ' + built_at[:10]
+    built = datetime.fromisoformat(built_at.replace('Z', '+00:00'))
+    if built.tzinfo is None:
+        built = built.replace(tzinfo=timezone.utc)
+    return name + ' · ' + built.astimezone(BEIJING_TIME).strftime('%Y-%m-%d')
 
 
 def publish(directory):
