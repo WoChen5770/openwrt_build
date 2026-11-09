@@ -33,6 +33,19 @@ jobs:
           PY
           python3 -m py_compile Scripts/*.py
           while IFS= read -r script; do bash -n "$script"; done < <(find Scripts -name '*.sh' -type f)
+      - name: Smoke-test diagnostics collection
+        run: |
+          work=$(mktemp -d)
+          trap 'rm -rf "$work"' EXIT
+          mkdir -p "$work/source" "$work/logs"
+          printf 'start\tend\tstage\n' > "$work/logs/build-time-parallel.tsv"
+          TOOLCHAIN_CACHE_HIT=false HOSTPKG_CACHE_HIT=true \
+            bash Scripts/collect-diagnostics.sh "$work/source" "$work/logs"
+          grep -F -- '--- build-time-parallel-report.txt ---' "$work/logs/build-summary.md"
+          if grep -Fq 'Source commit:' "$work/logs/build-summary.md"; then
+            echo 'Unexpected source commit recorded for a non-Git source tree' >&2
+            exit 1
+          fi
       - name: Validate GitHub Actions syntax
         env:
           ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8

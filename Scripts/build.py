@@ -409,6 +409,15 @@ def checkout(repo, commit, dest):
         raise ValueError("Source checkout differs from build plan")
 
 
+def checkout_locked(args):
+    lock = read_json(args.lock)
+    if lock["source"]["commit"] != args.commit:
+        raise ValueError("Source commit does not match the build plan")
+    if lock["fingerprint"] != args.fingerprint:
+        raise ValueError("Build fingerprint changed after planning")
+    checkout(lock["source"]["repository"], lock["source"]["commit"], Path(args.source))
+
+
 def remove_packages(tree, names):
     # Only exact-name recipe directories/links inside this disposable source tree.
     for root in (tree / "package", tree / "feeds/luci", tree / "feeds/packages"):
@@ -1004,7 +1013,22 @@ def validate_mtk_sysupgrade(path):
         raise ValueError("MTK wireless files missing from image: " + ", ".join(missing))
 
 
-def release_notes(lock, identity=None, config_name="Config-*.txt"):
+def manifest_summary(manifest):
+    kernel = None
+    luci = set()
+    for line in Path(manifest).read_text().splitlines():
+        fields = line.split()
+        if len(fields) < 3 or fields[1] != "-":
+            continue
+        name = fields[0]
+        if name == "kernel":
+            kernel = fields[2]
+        elif name.startswith(("luci-app-", "luci-theme-")):
+            luci.add(name)
+    return dict(kernel=kernel, luci=sorted(luci))
+
+
+def release_notes(lock, identity=None, config_name="Config-*.txt", manifest=None):
     profile, values, source = lock["profile"], lock["defaults"], lock["source"]
     label = profile.get("release_name") or profile.get("display_name", lock["profile_id"])
     repository = source["repository"].removesuffix(".git")
@@ -1021,6 +1045,15 @@ def release_notes(lock, identity=None, config_name="Config-*.txt"):
     else:
         notes += "\nx86 无内置无线时不生成热点。\n"
     notes += "\n> 首次登录请修改默认密码。只刷匹配机型与分区的镜像；sysupgrade 不代表适用于原厂首次刷入，勿强刷。\n"
+    if manifest:
+        summary = manifest_summary(manifest)
+        notes += "\n### 固件摘要\n\n| 项目 | 内容 |\n| :--- | :--- |\n"
+        notes += "| 内核版本 | `" + (summary["kernel"] or "未识别") + "` |\n"
+        notes += "| LuCI 应用 / 主题 | " + str(len(summary["luci"])) + " 项 |\n"
+        if summary["luci"]:
+            notes += ("\n<details>\n<summary>LuCI 应用与主题</summary>\n\n"
+                      + "\n".join("- `" + name + "`" for name in summary["luci"])
+                      + "\n\n</details>\n")
     if lock["profile_id"] == "jdcloud-re-cs-06":
         compression = profile.get("kernel_compression", "lzma").upper()
         notes += (f"\n> RE-CS-06 适配 2G 大分区，使用 {compression}/FIT 内核并保留上游 7 MiB 内核区域与 eMMC 布局，"
@@ -1102,7 +1135,7 @@ def collect(args):
             "images": images, "release_assets": assets,
             "completed_at": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")}
     write_json(output / "build-info.json", info)
-    (output / "release-notes.md").write_text(release_notes(lock, identity, config_name))
+    (output / "release-notes.md").write_text(release_notes(lock, identity, config_name, manifest))
     checksums = []
     for name in sorted(assets):
         path = output / name
@@ -1151,8 +1184,13 @@ def main():
     p.add_argument("--github-output", required=True)
     p = sub.add_parser("cache-refresh")
     p.add_argument("--source", required=True)
+    p = sub.add_parser("checkout")
+    p.add_argument("--source", required=True)
+    p.add_argument("--lock", required=True)
+    p.add_argument("--commit", required=True)
+    p.add_argument("--fingerprint", required=True)
     args = parser.parse_args()
-    {"plan": plan, "prepare": prepare, "collect": collect,
+    {"plan": plan, "checkout": checkout_locked, "prepare": prepare, "collect": collect,
      "cache-plan": cache_plan, "cache-refresh": cache_refresh}[args.command](args)
 
 

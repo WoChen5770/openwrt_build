@@ -1,5 +1,5 @@
 name: Build firmware
-run-name: Build firmware / ${{ inputs.profile || 'all' }}
+run-name: ${{ inputs.validate_only && 'Validate firmware' || 'Build firmware' }} / ${{ inputs.profile || 'all' }}
 
 on:
   workflow_dispatch:
@@ -25,6 +25,10 @@ on:
         description: 成功后发布 GitHub Release
         type: boolean
         default: true
+      validate_only:
+        description: 只校验锁定源码、插件与 defconfig，不编译或发布
+        type: boolean
+        default: false
   schedule:
     # GitHub Actions schedules use UTC: 19:00 UTC is 03:00 in Beijing.
     - cron: '0 19 * * *'
@@ -72,7 +76,7 @@ jobs:
   compile:
     name: ${{ matrix.profile }} / ${{ matrix.kernel_compression }} / compile
     needs: plan
-    if: needs.plan.outputs.has_builds == 'true'
+    if: needs.plan.outputs.has_builds == 'true' && inputs.validate_only != true
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     permissions:
@@ -116,15 +120,8 @@ jobs:
         run: bash Scripts/install-dependencies.sh
       - name: Checkout locked source
         run: |
-          python3 - <<'PY'
-          import os
-          from pathlib import Path
-          from Scripts.build import checkout, read_json
-          lock = read_json(Path('.state') / (os.environ['FIRMWARE_PROFILE'] + '.json'))
-          assert lock['source']['commit'] == os.environ['SOURCE_COMMIT']
-          assert lock['fingerprint'] == os.environ['FINGERPRINT']
-          checkout(lock['source']['repository'], lock['source']['commit'], Path(os.environ['SOURCE_DIR']))
-          PY
+          python3 Scripts/build.py checkout --source "$SOURCE_DIR" --lock ".state/$FIRMWARE_PROFILE.json" \
+            --commit "$SOURCE_COMMIT" --fingerprint "$FINGERPRINT"
           df -h .
       - name: Restore compiler cache
         id: build-cache
@@ -217,40 +214,15 @@ jobs:
         with:
           path: ${{ env.SOURCE_DIR }}/staging_dir/hostpkg
           key: ${{ steps.cache-plan.outputs.hostpkg_key }}
-      - name: Save configuration diagnostics
+      - name: Collect build diagnostics
         if: always()
         env:
           TOOLCHAIN_CACHE_HIT: ${{ steps.toolchain-cache.outputs.cache-hit }}
           HOSTPKG_CACHE_HIT: ${{ steps.hostpkg-cache.outputs.cache-hit }}
         run: |
           mkdir -p logs
-          if [[ -f "$SOURCE_DIR/.config" ]]; then cp "$SOURCE_DIR/.config" logs/config.full; fi
-          shopt -s nullglob
-          for kernel in "$SOURCE_DIR"/build_dir/target-*/linux-*/linux-*; do
-            [[ -f "$kernel/.config" ]] || continue
-            label="$(basename "$(dirname "$kernel")")-$(basename "$kernel")"
-            cp "$kernel/.config" "logs/kernel-config-$label"
-            if [[ -f "$kernel/vmlinux" ]]; then
-              readelf -SW "$kernel/vmlinux" > "logs/kernel-sections-$label.log" 2>&1 || true
-            fi
-          done
-          if [[ -d "$SOURCE_DIR/build_dir" ]]; then
-            find "$SOURCE_DIR/build_dir" -type f \( -name vmlinux -o -name 'Image*' -o -name '*.itb' -o -name '*.dtb' \) -printf '%s %P\n' | sort -k2 > logs/kernel-sizes.log
-          fi
-          if [[ -d "$SOURCE_DIR/logs" ]]; then cp -R "$SOURCE_DIR/logs" logs/upstream; fi
-          if [[ -d "$SOURCE_DIR/.ccache" ]]; then
-            CCACHE_DIR="$SOURCE_DIR/.ccache" ccache --show-stats 2>&1 | tee logs/ccache.log
-          fi
-          du -sh "$SOURCE_DIR/.ccache" "$SOURCE_DIR/staging_dir/host" "$SOURCE_DIR/staging_dir/hostpkg" "$SOURCE_DIR"/staging_dir/toolchain-* > logs/cache-sizes.log 2>/dev/null || true
-          {
-            echo '### Cache diagnostics'
-            echo '```text'
-            echo "toolchain cache hit: ${TOOLCHAIN_CACHE_HIT:-not-run}"
-            echo "hostpkg cache hit: ${HOSTPKG_CACHE_HIT:-not-run}"
-            if [[ -s logs/ccache.log ]]; then cat logs/ccache.log; fi
-            if [[ -s logs/cache-sizes.log ]]; then cat logs/cache-sizes.log; fi
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
+          bash Scripts/collect-diagnostics.sh "$SOURCE_DIR" "$GITHUB_WORKSPACE/logs"
+          if [[ -s logs/build-summary.md ]]; then cat logs/build-summary.md >> "$GITHUB_STEP_SUMMARY"; fi
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
@@ -260,6 +232,73 @@ jobs:
             .state/${{ matrix.profile }}.json
           include-hidden-files: true
           retention-days: ${{ needs.plan.outputs.retention_days }}
+
+  validate:
+    name: ${{ matrix.profile }} / validate
+    needs: plan
+    if: needs.plan.outputs.has_builds == 'true' && inputs.validate_only == true
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      actions: read
+      contents: read
+    strategy:
+      fail-fast: false
+      max-parallel: ${{ fromJSON(needs.plan.outputs.max_parallel) }}
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    concurrency:
+      group: validate-${{ matrix.concurrency_group }}
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: bash
+    env:
+      SOURCE_DIR: ${{ github.workspace }}/openwrt
+      FIRMWARE_PROFILE: ${{ matrix.profile }}
+      SOURCE_COMMIT: ${{ matrix.source_commit }}
+      FINGERPRINT: ${{ matrix.fingerprint }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          artifact-ids: ${{ needs.plan.outputs.plan_artifact_id }}
+          merge-multiple: true
+          path: .state/
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+      - name: Install build dependencies
+        run: bash Scripts/install-dependencies.sh
+      - name: Checkout locked source
+        run: |
+          python3 Scripts/build.py checkout --source "$SOURCE_DIR" --lock ".state/$FIRMWARE_PROFILE.json" \
+            --commit "$SOURCE_COMMIT" --fingerprint "$FINGERPRINT"
+          df -h .
+      - name: Integrate plugins and verify defconfig
+        run: |
+          set -euo pipefail
+          mkdir -p logs
+          python3 Scripts/build.py prepare --source "$SOURCE_DIR" --lock ".state/$FIRMWARE_PROFILE.json" 2>&1 | tee logs/prepare.log
+      - name: Collect validation diagnostics
+        if: always()
+        env:
+          TOOLCHAIN_CACHE_HIT: not-used
+          HOSTPKG_CACHE_HIT: not-used
+        run: |
+          bash Scripts/collect-diagnostics.sh "$SOURCE_DIR" "$GITHUB_WORKSPACE/logs"
+          if [[ -s logs/build-summary.md ]]; then cat logs/build-summary.md >> "$GITHUB_STEP_SUMMARY"; fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: validation-${{ matrix.profile }}-${{ github.run_attempt }}
+          path: |
+            logs/
+            .state/${{ matrix.profile }}.json
+          include-hidden-files: true
+          retention-days: ${{ needs.plan.outputs.retention_days }}
+          if-no-files-found: error
+
   publish-plan:
     name: Select successful firmware
     needs: [plan, compile]
@@ -267,6 +306,7 @@ jobs:
     if: >-
       ${{ !cancelled() && needs.plan.result == 'success' &&
           needs.plan.outputs.has_builds == 'true' &&
+          inputs.validate_only != true &&
           (github.event_name == 'schedule' || inputs.publish == true) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
