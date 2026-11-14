@@ -151,7 +151,8 @@ def required_for(profile_id, profile, values=None):
                    "PACKAGE_xray-core", "PACKAGE_luci-app-passwall_INCLUDE_Xray",
                    "PACKAGE_luci-app-daede", "PACKAGE_daed", "PACKAGE_honk",
                    "PACKAGE_luci-app-honk", "PACKAGE_luci-i18n-honk-zh-cn", "PACKAGE_luci-app-easytier",
-                   "PACKAGE_easytier", "PACKAGE_adguardhome", "PACKAGE_luci-app-adguardhome",
+                   "PACKAGE_easytier", "PACKAGE_luci-app-meshassistant",
+                   "PACKAGE_luci-i18n-meshassistant-zh-cn", "PACKAGE_adguardhome", "PACKAGE_luci-app-adguardhome",
                    "PACKAGE_luci-app-adguardhome-tk",
                    "KERNEL_DEBUG_INFO_BTF", "DAED_USE_KERNEL_BTF", "BPF_TOOLCHAIN_HOST"):
         if values.get(option) == "y":

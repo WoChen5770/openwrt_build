@@ -1,0 +1,13 @@
+#!/bin/sh
+# Mesh Assistant is integrated into the selected open-wireless images, but a
+# fresh image must not start a mesh or modify network settings automatically.
+# Preserve an existing user configuration; only seed the package default.
+
+[ -x /etc/meshassistant/shell/meshassistant.sh ] || exit 0
+[ -e /etc/config/meshassistant ] && exit 0
+
+uci -q set meshassistant.config=meshassistant || exit 1
+uci -q set meshassistant.config.enabled='0' || exit 1
+uci commit meshassistant || exit 1
+
+exit 0

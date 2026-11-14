@@ -34,8 +34,11 @@
 | 管理账号 | `root` · 默认空密码 |
 | Wi-Fi | `ImmortalWrt` · 密码 `12345678` · 国家代码 `US` · 5GHz 默认 160MHz（设备支持时） |
 | 组网与漫游 | DAWN · 802.11k/v/r |
+| MESH助手 | 5 个开源无线机型默认内置 · 首次启动默认关闭 |
 | 界面 | Vantage（默认）· Dashboard 可选 · 简体中文 |
 | 时区 | Asia/Shanghai |
+
+> MESH助手随 Xiaomi BE6500、JDCloud RE-CS-06、7DR7299 MT76、S20P MT76、Tenda BE12 Pro 内置，默认不启用、不修改网络；需要时在「网络 → MESH助手」中手动配置。
 
 
 ## 构建与发布

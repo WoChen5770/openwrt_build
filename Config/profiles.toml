@@ -41,6 +41,8 @@ required = [
   "PACKAGE_kmod-sfp",
   "PACKAGE_kmod-usb3",
   "PACKAGE_automount",
+  "PACKAGE_luci-app-meshassistant",
+  "PACKAGE_luci-i18n-meshassistant-zh-cn",
 ]
 
 # 固件必需包
@@ -53,6 +55,8 @@ required_image_packages = [
   "kmod-sfp",
   "kmod-usb3",
   "automount",
+  "luci-app-meshassistant",
+  "luci-i18n-meshassistant-zh-cn",
 ]
 
 # 固件禁用包
@@ -246,6 +250,8 @@ required = [
   "PACKAGE_ipq-wifi-xiaomi_be6500",
   "PACKAGE_ath12k-firmware-ipq5332-ddwrt",
   "PACKAGE_ath12k-firmware-qcn9274-ddwrt",
+  "PACKAGE_luci-app-meshassistant",
+  "PACKAGE_luci-i18n-meshassistant-zh-cn",
 ]
 
 # 固件必需包
@@ -257,6 +263,8 @@ required_image_packages = [
   "ipq-wifi-xiaomi_be6500",
   "ath12k-firmware-ipq5332-ddwrt",
   "ath12k-firmware-qcn9274-ddwrt",
+  "luci-app-meshassistant",
+  "luci-i18n-meshassistant-zh-cn",
 ]
 
 # 固件禁用包
@@ -296,6 +304,8 @@ required = [
   "PACKAGE_mt7987-2p5g-phy-firmware",
   "PACKAGE_airoha-en8811h-firmware",
   "PACKAGE_kmod-phy-airoha-en8811h",
+  "PACKAGE_luci-app-meshassistant",
+  "PACKAGE_luci-i18n-meshassistant-zh-cn",
 ]
 
 # 固件必需包
@@ -306,6 +316,8 @@ required_image_packages = [
   "mt7987-2p5g-phy-firmware",
   "airoha-en8811h-firmware",
   "kmod-phy-airoha-en8811h",
+  "luci-app-meshassistant",
+  "luci-i18n-meshassistant-zh-cn",
 ]
 
 # 固件禁用包
@@ -344,6 +356,8 @@ required = [
   "PACKAGE_kmod-mmc",
   "PACKAGE_kmod-tcp-bbr",
   "PACKAGE_kmod-sched",
+  "PACKAGE_luci-app-meshassistant",
+  "PACKAGE_luci-i18n-meshassistant-zh-cn",
 ]
 
 # 固件必需包
@@ -353,6 +367,8 @@ required_image_packages = [
   "kmod-mmc",
   "kmod-tcp-bbr",
   "kmod-sched",
+  "luci-app-meshassistant",
+  "luci-i18n-meshassistant-zh-cn",
 ]
 
 # 禁用配置
@@ -429,6 +445,8 @@ required = [
   "PACKAGE_fullconenat-sonic",
   "PACKAGE_kmod-sched",
   "PACKAGE_kmod-tcp-bbr",
+  "PACKAGE_luci-app-meshassistant",
+  "PACKAGE_luci-i18n-meshassistant-zh-cn",
 ]
 
 # 固件必需包
@@ -489,10 +507,12 @@ required_image_packages = [
   "luci-app-daede",
   "luci-app-easytier",
   "luci-app-honk",
+  "luci-app-meshassistant",
   "luci-app-passwall",
   "luci-app-upnp",
   "luci-app-vantage",
   "luci-app-wolultra",
+  "luci-i18n-meshassistant-zh-cn",
   "luci-theme-shadcn",
   "luci-theme-vantage",
   "umdns",

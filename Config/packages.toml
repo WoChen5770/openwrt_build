@@ -65,3 +65,10 @@ repository = "https://github.com/189160/luci-app-honk.git"
 branch = "main"
 profiles = ["s20p-mt76", "jdcloud-re-cs-06", "s20p-mtk", "x86-64", "7dr7299-mt76", "7dr7299-mtk"]
 mode = "honk"
+
+# Mesh 配置助手；仅面向开源无线机型，默认保持关闭
+[luci-app-meshassistant]
+repository = "https://github.com/Arthur97172/luci-app-meshassistant.git"
+branch = "main"
+profiles = ["7dr7299-mt76", "s20p-mt76", "xiaomi-be6500", "tenda-be12-pro", "jdcloud-re-cs-06"]
+mode = "whole"
