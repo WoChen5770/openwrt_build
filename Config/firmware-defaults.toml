@@ -22,7 +22,7 @@ wifi_5g_width = 160
 wifi_disabled = false
 
 # 界面主题
-theme = "shadcn"
+theme = "vantage"
 
 # 时区规则
 timezone = "CST-8"

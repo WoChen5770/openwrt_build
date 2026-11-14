@@ -34,7 +34,7 @@
 | 管理账号 | `root` · 默认空密码 |
 | Wi-Fi | `ImmortalWrt` · 密码 `12345678` · 国家代码 `US` · 5GHz 默认 160MHz（设备支持时） |
 | 组网与漫游 | DAWN · 802.11k/v/r |
-| 界面 | shadcn（默认）· Vantage 主题 / Dashboard 可选 · 简体中文 |
+| 界面 | Vantage（默认）· Dashboard 可选 · 简体中文 |
 | 时区 | Asia/Shanghai |
 
 
