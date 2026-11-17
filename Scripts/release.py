@@ -141,7 +141,7 @@ def release_assets(directory, info):
 
 
 def release_title(profile_id, profile, built_at):
-    name = profile.get('release_name') or profile.get('display_name', profile_id)
+    name = profile.get('display_name', profile_id)
     built = datetime.fromisoformat(built_at.replace('Z', '+00:00'))
     if built.tzinfo is None:
         built = built.replace(tzinfo=timezone.utc)

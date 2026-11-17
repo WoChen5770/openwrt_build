@@ -1,0 +1,20 @@
+Define AC_NUM before sr_cmd.h uses it.
+
+With unified firmware commands, cmm_fw_uni_cmd.h includes sr_cmd.h
+before rt_config.h reaches dabs_qos.h, which normally defines AC_NUM.
+Keep the upstream value of four locally so MTK Wi-Fi7 builds.
+
+--- a/package/mtk/drivers/mt_wifi7/src/mt_wifi/include/sr_cmd.h
++++ b/package/mtk/drivers/mt_wifi7/src/mt_wifi/include/sr_cmd.h
+@@ -21,6 +21,11 @@
+ #ifndef __CMM_SR_CMD_H__
+ #define __CMM_SR_CMD_H__
+ 
++/* dabs_qos.h defines this too late when unified commands include sr_cmd.h. */
++#ifndef AC_NUM
++#define AC_NUM 4
++#endif
++
+ #ifdef CFG_SUPPORT_FALCON_SR
+ /*******************************************************************************
+  *    INCLUDED FILES

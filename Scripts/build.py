@@ -117,8 +117,56 @@ def merge_config(fragments):
     return values
 
 
+PROJECT_CONFIG = {
+    "TARGET_ALL_PROFILES": "n",
+    "TARGET_MULTI_PROFILE": "y",
+    "TARGET_PER_DEVICE_ROOTFS": "n",
+    "TARGET_ROOTFS_INITRAMFS": "n",
+    # OpenWrt exposes CCACHE only when DEVEL is enabled.
+    "DEVEL": "y",
+    "CCACHE": "y",
+    "CCACHE_DIR": '\"\"',
+}
+
+
+def serialize_config(values):
+    return "".join("CONFIG_" + key + "=" + value + "\n" for key, value in values.items())
+
+
+def profile_platform(profile, values=None):
+    """Read the single target/subtarget/device selection from the profile Config."""
+    if values is None:
+        values = merge_config([(ROOT / profile["config"]).read_text()])
+    devices = []
+    for key, value in values.items():
+        match = re.fullmatch(r"TARGET_DEVICE_(.+)_DEVICE_(.+)", key)
+        if match and value == "y":
+            devices.append((match.group(1), match.group(2)))
+    if len(devices) != 1:
+        raise ValueError(profile["config"] + ": expected exactly one selected device")
+    platform, device = devices[0]
+    excluded = (
+        "TARGET_ALL_PROFILES", "TARGET_MULTI_PROFILE", "TARGET_PER_DEVICE_ROOTFS",
+        "TARGET_ROOTFS_", "TARGET_IMAGES_", "TARGET_KERNEL_", "TARGET_INITRAMFS_",
+        "TARGET_DEVICE_",
+    )
+    targets = [key.removeprefix("TARGET_") for key, value in values.items()
+               if value == "y" and key.startswith("TARGET_") and not key.startswith(excluded)]
+    candidates = [target for target in targets if platform.startswith(target + "_")]
+    if not candidates:
+        raise ValueError(profile["config"] + ": target and subtarget are not both selected")
+    target = min(candidates, key=len)
+    subtarget = platform[len(target) + 1:]
+    target_key = "TARGET_" + target
+    subtarget_key = "TARGET_" + target + "_" + subtarget
+    device_key = "TARGET_DEVICE_" + platform + "_DEVICE_" + device
+    if not subtarget or values.get(target_key) != "y" or values.get(subtarget_key) != "y":
+        raise ValueError(profile["config"] + ": target and subtarget are not both selected")
+    return dict(target=target, subtarget=subtarget, device=device, device_key=device_key)
+
+
 def config_for(profile, packages=""):
-    selections = [(ROOT / profile["config"]).read_text()]
+    selections = [serialize_config(PROJECT_CONFIG), (ROOT / profile["config"]).read_text()]
     private = ROOT / "Config/PRIVATE.txt"
     if private.is_file():
         selections.append(private.read_text())
@@ -138,65 +186,39 @@ def package_overrides(content):
     return content
 
 
-def required_for(profile_id, profile, values=None):
-    values = config_for(profile) if values is None else values
-    required = set(profile["required"])
-    required.update(("TARGET_" + profile["target"], "TARGET_" + profile["target"] + "_" + profile["subtarget"],
-                     "TARGET_DEVICE_" + profile["target"] + "_" + profile["subtarget"] + "_DEVICE_" + profile["device"],
-                     "PACKAGE_luci", "PACKAGE_luci-ssl-openssl", "PACKAGE_luci-theme-shadcn",
-                     "PACKAGE_luci-theme-vantage", "PACKAGE_luci-app-vantage"))
-    # Guard user-visible features, rather than allowing defconfig to silently drop them.
-    for option in ("PACKAGE_kmod-batman-adv", "PACKAGE_wpad-openssl",
-                   "PACKAGE_MAC80211_MESH", "PACKAGE_dawn", "PACKAGE_umdns", "PACKAGE_luci-app-passwall",
-                   "PACKAGE_xray-core", "PACKAGE_luci-app-passwall_INCLUDE_Xray",
-                   "PACKAGE_luci-app-daede", "PACKAGE_daed", "PACKAGE_honk",
-                   "PACKAGE_luci-app-honk", "PACKAGE_luci-i18n-honk-zh-cn", "PACKAGE_luci-app-easytier",
-                   "PACKAGE_easytier", "PACKAGE_adguardhome", "PACKAGE_luci-app-adguardhome",
-                   "PACKAGE_luci-app-adguardhome-tk",
-                   "KERNEL_DEBUG_INFO_BTF", "DAED_USE_KERNEL_BTF", "BPF_TOOLCHAIN_HOST"):
-        if values.get(option) == "y":
-            required.add(option)
-    if profile_id == "x86-64":
-        required.update(("PACKAGE_kmod-tcp-bbr", "PACKAGE_kmod-sched", "PACKAGE_tc-full"))
-    if profile_id == "s20p-mtk":
-        required.update(("PACKAGE_luci-app-eqos-mtk", "PACKAGE_luci-app-turboacc-mtk"))
-    return required
-
-
 def validate_config(profile_id, profile, content, selections=None):
     values = merge_config([content])
     selections = config_for(profile) if selections is None else selections
-    errors = ["Missing CONFIG_" + key + "=y" for key in sorted(required_for(profile_id, profile, selections)) if values.get(key) != "y"]
-    # Vendor drivers have tristate/string/int platform settings, not just packages.
-    for key, expected_value in profile.get("expected_config", {}).items():
-        if values.get(key) != expected_value:
-            errors.append("Expected CONFIG_" + key + "=" + expected_value + "; got " + values.get(key, "<missing>"))
-    forbidden = set(profile["forbidden"]) | {
-        "PACKAGE_bandix",
-        "PACKAGE_luci-app-bandix",
-        "PACKAGE_luci-app-mesh",
-        "PACKAGE_wpad-mesh-openssl",
-    }
-    # Preserve exclusions after applying private and temporary package overrides.
-    forbidden.update(key for key, value in selections.items() if key.startswith("PACKAGE_") and value == "n")
-    errors += ["Forbidden CONFIG_" + key for key in sorted(forbidden) if values.get(key) in ("y", "m")]
-    errors += ["Forbidden QModem option: CONFIG_" + key for key, value in values.items()
-               if value in ("y", "m") and key.lower().startswith(("package_qmodem", "package_luci-app-qmodem", "package_luci-i18n-qmodem"))]
-    expected = "TARGET_DEVICE_" + profile["target"] + "_" + profile["subtarget"] + "_DEVICE_" + profile["device"]
-    if any(key.startswith("TARGET_DEVICE_") and value == "y" and key != expected for key, value in values.items()):
+    platform = profile_platform(profile)
+    errors = []
+    for key, expected in selections.items():
+        actual = values.get(key)
+        if expected in ("y", "m"):
+            if actual not in (expected, "y"):
+                errors.append("Missing CONFIG_" + key + "=" + expected + "; got " + str(actual or "<missing>"))
+        elif expected == "n":
+            if actual in ("y", "m"):
+                errors.append("Expected CONFIG_" + key + " to remain disabled; got " + actual)
+        elif actual != expected:
+            errors.append("Expected CONFIG_" + key + "=" + expected + "; got " + str(actual or "<missing>"))
+    if any(key.startswith("TARGET_DEVICE_") and value == "y" and key != platform["device_key"]
+           for key, value in values.items()):
         errors.append("More than one device selected")
     if values.get("TARGET_ALL_PROFILES") == "y":
         errors.append("All-device builds are not allowed")
     if errors:
-        raise ValueError("\n".join(errors))
+        raise ValueError(profile_id + " configuration mismatch:\n" + "\n".join(errors))
 
 
 def defaults(profile_id=None):
     values = read_toml(ROOT / "Config/firmware-defaults.toml")
-    profiles = read_toml(ROOT / "Config/profiles.toml")["profiles"]
+    specs = read_toml(ROOT / "Config/profiles.toml")
+    profiles = specs["profiles"]
     if profile_id is not None:
-        values["hostname"] = profiles[profile_id]["hostname"]
-        if profiles[profile_id].get("network_tuning"):
+        profile = profiles[profile_id]
+        source = specs["sources"][profile["source"]]
+        values["hostname"] = profile["hostname"]
+        if source.get("network_tuning") and profile_platform(profile)["target"] != "x86":
             values["network_tuning"] = True
     return values
 
@@ -237,7 +259,8 @@ def config_marker(values):
 
 def ccache_group(name, profile):
     # The same compatibility group also identifies the shared toolchain cache.
-    group = profile.get("ccache_group", name)
+    platform = profile_platform(profile)
+    group = "-".join((profile["source"], platform["target"], platform["subtarget"])).replace("_", "-")
     if not isinstance(group, str) or not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", group):
         raise ValueError("Invalid ccache group: " + name)
     return group
@@ -268,12 +291,10 @@ def assign_cache_writers(matrix, profiles):
     platforms, writers = {}, {}
     for name, profile in profiles.items():
         group = ccache_group(name, profile)
-        platform = tuple(profile[key] for key in ("source", "target", "subtarget"))
+        selected = profile_platform(profile)
+        platform = (profile["source"], selected["target"], selected["subtarget"])
         if platforms.setdefault(group, platform) != platform:
             raise ValueError("A ccache group must use the same source and platform: " + group)
-        priority = profile.get("ccache_priority", 0)
-        if type(priority) is not int or priority < 0:
-            raise ValueError("Invalid ccache writer priority: " + name)
     active_groups = {ccache_group(item["profile"], profiles[item["profile"]]) for item in matrix}
     foundations = {}
     for name, profile in profiles.items():
@@ -290,10 +311,10 @@ def assign_cache_writers(matrix, profiles):
         name = item["profile"]
         item["ccache_group"] = group = ccache_group(name, profiles[name])
         item["toolchain_group"] = group
-        rank = (profiles[name].get("ccache_priority", 0), name)
-        writers[group] = max(writers.get(group, rank), rank)
+        if group not in writers or name < writers[group]:
+            writers[group] = name
     for item in matrix:
-        item["ccache_write"] = item["profile"] == writers[item["ccache_group"]][1]
+        item["ccache_write"] = item["profile"] == writers[item["ccache_group"]]
 
 
 def compression_profile(profile_id, profile, compression="profile"):
@@ -303,7 +324,7 @@ def compression_profile(profile_id, profile, compression="profile"):
         if compression != "profile":
             raise ValueError("A kernel compression override requires jdcloud-re-cs-06")
         return dict(profile)
-    selected = profile.get("kernel_compression", "lzma") if compression == "profile" else compression
+    selected = "lzma" if compression == "profile" else compression
     if selected not in ("lzma", "gzip"):
         raise ValueError("Invalid RE-CS-06 kernel compression")
     lzma_patch = "Scripts/Patches/jdcloud-re-cs-06-lzma-kernel.patch"
@@ -345,6 +366,7 @@ def plan(args):
             if args.profile not in ("all", profile_id):
                 continue
             profile = compression_profile(profile_id, profile, compression)
+            platform = profile_platform(profile)
             source_id = profile["source"]
             source = specs["sources"][source_id]
             if source_id not in source_commits:
@@ -364,7 +386,8 @@ def plan(args):
                 if key not in package_commits:
                     package_commits[key] = resolve(*key)
                 selected[name] = {**package, "commit": package_commits[key]}
-            lock = dict(profile_id=profile_id, profile=profile, source=sources[source_id], packages=selected,
+            lock = dict(profile_id=profile_id, profile=profile, platform=platform,
+                        source=sources[source_id], packages=selected,
                         ci_hash=code_hash, defaults=defaults(profile_id), config=config_for(profile, overrides),
                         repository_owner=owner)
             private = ROOT / "Config/PRIVATE.txt"
@@ -438,9 +461,8 @@ def remove_packages(tree, names):
 
 
 def integrate(lock, tree):
-    env = {**os.environ, "GITHUB_WORKSPACE": str(ROOT), "WRT_CONFIG": lock["profile"]["legacy_name"]}
+    env = {**os.environ, "GITHUB_WORKSPACE": str(ROOT), "WRT_PROFILE": lock["profile_id"]}
     special_packages = {
-        "mesh": ("Mesh.sh", "MESH_COMMIT"),
         "honk": ("Honk.sh", "HONK_COMMIT"),
     }
     for name, package in lock["packages"].items():
@@ -487,14 +509,6 @@ def integrate(lock, tree):
         for key, value in replacements.items():
             template = template.replace("@" + key + "@", value)
         (target / "Makefile").write_text(template)
-    # Keep the old optional updater recipes without selecting them by default.
-    for name in ("upx-arm64-static", "owrt-core-update"):
-        target = tree / "package" / name
-        target.mkdir(exist_ok=True)
-        shutil.copy2(ROOT / "Scripts/Makefiles" / (name + ".mk"), target / "Makefile")
-    target = tree / "package/owrt-core-update/files"
-    target.mkdir(exist_ok=True)
-    shutil.copy2(ROOT / "Scripts/Files/core-update/owrt-core-update", target / "owrt-core-update")
     # Maintain the old Rust build fix without unrelated theme/download hacks.
     for path in (tree / "feeds/packages").glob("*/rust/Makefile"):
         path.write_text(path.read_text().replace("ci-llvm=true", "ci-llvm=false"))
@@ -526,7 +540,7 @@ def use_daed_go_toolchain(tree, version):
 
 
 def use_packaged_adguardhome(tree):
-    # Use the upstream core without changing its version, Go or service files.
+    # Use the packaged core without changing its version, Go or service files.
     path = tree / "package/custom/luci-app-adguardhome/root/etc/config/AdGuardHome"
     content, count = re.subn(r"(?m)^([ \t]*option[ \t]+binpath[ \t]+)'[^'\n]*'[ \t]*$",
                             lambda m: m[1] + "'/usr/bin/AdGuardHome'", path.read_text())
@@ -535,8 +549,12 @@ def use_packaged_adguardhome(tree):
     path.write_text(content)
 
 
-def apply_source_patches(tree, profile):
-    for name in profile.get("patches", []):
+def apply_source_patches(tree, profile, values):
+    patches = list(profile.get("patches", []))
+    dawn_patch = "Scripts/Patches/dawn-runtime-fixes.patch"
+    if values.get("PACKAGE_dawn") == "y" and dawn_patch not in patches:
+        patches.insert(0, dawn_patch)
+    for name in patches:
         relative = Path(name)
         if relative.is_absolute() or ".." in relative.parts or relative.parts[:2] != ("Scripts", "Patches"):
             raise ValueError("Invalid source patch path")
@@ -791,9 +809,10 @@ def cache_keys(lock, tree, host):
     if not values:
         raise ValueError("Cache planning requires the expanded build configuration")
     profile = lock["profile"]
+    platform = lock["platform"]
     group = ccache_group(lock["profile_id"], profile)
-    target = "target/linux/" + profile["target"]
-    platform_files = (target + "/Makefile", target + "/" + profile["subtarget"] + "/target.mk")
+    target = "target/linux/" + platform["target"]
+    platform_files = (target + "/Makefile", target + "/" + platform["subtarget"] + "/target.mk")
     missing = [path for path in platform_files if not (tree / path).is_file()]
     if missing:
         raise ValueError("Toolchain cache input is missing: " + ", ".join(missing))
@@ -802,11 +821,11 @@ def cache_keys(lock, tree, host):
         raise ValueError("Toolchain cache planning found no target/toolchain configuration")
     # Toolchain kernel headers use their own patches; device DTS, image and kernel
     # configuration changes must not invalidate the shared toolchain cache.
-    paths = toolchain_source_paths(tree, target, profile["subtarget"])
+    paths = toolchain_source_paths(tree, target, platform["subtarget"])
     source_hash = cache_source_inputs(tree, paths)
     foundation = dict(cache_group=group,
                       source={k: lock["source"][k] for k in ("repository", "branch")},
-                      platform=tuple(profile[key] for key in ("target", "subtarget")),
+                      platform=(platform["target"], platform["subtarget"]),
                       config=selected, source_hash=source_hash,
                       host=host, directory=str(tree.resolve()))
     def digest(value):
@@ -855,10 +874,26 @@ def refresh_toolchain_cache(tree):
     (tree / "tmp/.build").write_text("1\n")
 
 
+def remove_path(path):
+    if path.is_symlink() or path.is_file():
+        path.unlink()
+    elif path.is_dir():
+        shutil.rmtree(path)
+
+
+def clear_target_outputs(tree):
+    # `make clean` also deletes staging_dir, including the restored host,
+    # hostpkg and toolchain caches. Remove only outputs that are unsafe to reuse.
+    for relative in ("build_dir", "bin", "staging_dir/packages"):
+        remove_path(tree / relative)
+    for path in (tree / "staging_dir").glob("target-*"):
+        remove_path(path)
+
+
 def cache_refresh(args):
     tree = Path(args.source).resolve()
     refresh_toolchain_cache(tree)
-    run("make", "clean", cwd=tree)
+    clear_target_outputs(tree)
 
 
 def prepare(args):
@@ -880,8 +915,9 @@ def prepare(args):
     private = ROOT / "Scripts/PRIVATE.sh"
     if private.is_file():
         print("Applying trusted Scripts/PRIVATE.sh")
-        env = {**os.environ, "GITHUB_WORKSPACE": str(ROOT), "WRT_CONFIG": lock["profile"]["legacy_name"],
-               "WRT_TARGET": lock["profile"]["target"], "WRT_SUBTARGET": lock["profile"]["subtarget"],
+        platform = lock["platform"]
+        env = {**os.environ, "GITHUB_WORKSPACE": str(ROOT), "WRT_PROFILE": lock["profile_id"],
+               "WRT_TARGET": platform["target"], "WRT_SUBTARGET": platform["subtarget"],
                "WRT_IP": lock["defaults"]["lan_ip"], "WRT_MARK": identity["repository_owner"],
                "WRT_DATE": identity["build_date"], "WRT_BRANCH": lock["source"]["branch"],
                "WRT_INFO": lock["profile"]["source"]}
@@ -889,15 +925,15 @@ def prepare(args):
         env.pop("GITHUB_TOKEN", None)
         run("bash", str(private), cwd=tree, env=env)
     remove_qmodem(tree)
-    vendor = lock["profile"].get("variant") == "mtk-vendor" or lock["profile"]["source"] == "chasey"
-    apply_defaults(tree, lock["defaults"], vendor, lock["profile"].get("wireless_defaults"))
-    apply_source_patches(tree, lock["profile"])
+    vendor = lock["source"].get("vendor_wireless", False)
+    apply_defaults(tree, lock["defaults"], vendor, lock["source"].get("wireless_defaults"))
+    apply_source_patches(tree, lock["profile"], lock["config"])
     apply_kernel_config(tree, lock["profile"])
     customize_luci(tree, lock["defaults"], identity)
     write_json(tree / ".build-identity.json", identity)
     write_json(tree / "files/usr/share/openwrt-build/build-info.json", identity)
     values = lock["config"]
-    content = "".join("CONFIG_" + key + "=" + value + "\n" for key, value in values.items())
+    content = serialize_config(values)
     (tree / ".config").write_text(content)
     run("make", "defconfig", cwd=tree)
     actual = (tree / ".config").read_text()
@@ -910,16 +946,17 @@ def prepare(args):
     print("Configuration verified: " + lock["profile_id"])
 
 
-def image_manifest(target, profile, profile_id=None):
+def image_manifest(target, profile, profile_id=None, platform=None):
+    platform = platform or profile_platform(profile)
     manifests = sorted(p for p in target.glob("*.manifest") if p.is_file())
-    device_suffix = "-" + profile["image_match"] + ".manifest"
-    platform = "-" + profile["target"] + "-" + profile["subtarget"]
+    device_suffix = "-" + platform["device"] + ".manifest"
+    platform_suffix = "-" + platform["target"] + "-" + platform["subtarget"]
     # Older CI exported PROFILE, which upstream used as a manifest suffix.
     # Match only this locked profile, then the normal target-wide manifest.
     suffixes = [device_suffix]
     if profile_id:
-        suffixes.append(platform + "-" + profile_id + ".manifest")
-    suffixes.append(platform + ".manifest")
+        suffixes.append(platform_suffix + "-" + profile_id + ".manifest")
+    suffixes.append(platform_suffix + ".manifest")
     candidates = []
     for suffix in suffixes:
         candidates = [p for p in manifests if p.name.endswith(suffix)]
@@ -931,21 +968,14 @@ def image_manifest(target, profile, profile_id=None):
     return candidates[0]
 
 
-def validate_image_packages(target, profile, profile_id=None):
-    required = set(profile.get("required_image_packages", []))
-    manifest = image_manifest(target, profile, profile_id)
-    installed = {line.split()[0] for line in manifest.read_text().splitlines() if line.strip()}
-    missing = sorted(required - installed)
-    if missing:
-        raise ValueError("Firmware is missing packages: " + ", ".join(missing))
-    forbidden = sorted(installed & (set(profile.get("forbidden_image_packages", [])) | {"luci-app-mesh"}))
-    if forbidden:
-        raise ValueError("Firmware contains forbidden packages: " + ", ".join(forbidden))
-    print("Package manifest verified: " + manifest.name)
+def validate_image_packages(target, profile, profile_id=None, platform=None):
+    manifest = image_manifest(target, profile, profile_id, platform)
+    print("Package manifest found: " + manifest.name)
     return manifest
 
 
-def seven_dr_images(target, profile):
+def seven_dr_images(target, profile, platform=None):
+    platform = platform or profile_platform(profile)
     images = []
     available = sorted(path for path in target.glob("*.itb") if path.is_file())
     # Final filenames include OpenWrt's squashfs/initramfs prefixes.
@@ -953,7 +983,7 @@ def seven_dr_images(target, profile):
                 "recovery": ("-initramfs-recovery.itb", "-recovery.itb")}
     for kind, endings in suffixes.items():
         candidates = [path for path in available
-                      if any(path.name.endswith("-" + profile["image_match"] + ending) for ending in endings)]
+                      if any(path.name.endswith("-" + platform["device"] + ending) for ending in endings)]
         if len(candidates) != 1:
             matched = ", ".join(path.name for path in candidates) or "none"
             found = ", ".join(path.name for path in available) or "none"
@@ -1030,7 +1060,8 @@ def manifest_summary(manifest):
 
 def release_notes(lock, identity=None, config_name="Config-*.txt", manifest=None):
     profile, values, source = lock["profile"], lock["defaults"], lock["source"]
-    label = profile.get("release_name") or profile.get("display_name", lock["profile_id"])
+    platform = lock.get("platform") or profile_platform(profile)
+    label = profile.get("display_name", lock["profile_id"])
     repository = source["repository"].removesuffix(".git")
     notes = "ImmortalWrt · " + label + "\n\n"
     if identity:
@@ -1040,7 +1071,7 @@ def release_notes(lock, identity=None, config_name="Config-*.txt", manifest=None
     notes += "| 登录 | `root` · " + ("已设密码" if values.get("root_password_hash") else "空密码") + " |\n"
     notes += "| 界面 | `" + values["theme"] + "` · 简体中文 |\n"
     notes += "| 主机名 | `" + values["hostname"] + "` |\n"
-    if profile["target"] != "x86":
+    if platform["target"] != "x86":
         notes += "| Wi-Fi | `" + values["wifi_ssid"] + "` · `" + values["wifi_password"] + "` |\n"
     else:
         notes += "\nx86 无内置无线时不生成热点。\n"
@@ -1061,13 +1092,13 @@ def release_notes(lock, identity=None, config_name="Config-*.txt", manifest=None
     if lock["profile_id"].startswith("s20p-"):
         notes += "\n> S20P MTK / MT76 不保证直接互刷。"
         if profile["source"] == "chasey":
-            notes += "daed / honk 默认关闭，HNAT / WARP 与透明代理需验证兼容性。"
+            notes += "HNAT / WARP 与透明代理需验证兼容性。"
         notes += "\n"
     if lock["profile_id"].startswith("7dr7299-"):
         notes += "\n> 仅适用于 TP-Link TL-7DR7299 v1。MT76 / MTK 的引导器及分区布局需分别核对，不保证直接互刷。"
         notes += "sysupgrade.itb 用于匹配布局的 OpenWrt 升级；recovery.itb 为恢复镜像，不是原厂首次刷入包；不发布引导器。"
-        if profile["variant"] == "mtk-vendor":
-            notes += "闭源版不集成 Mesh / DAWN；daed / honk 默认关闭，启用前验证 HNAT / WARP 兼容性。"
+        if source.get("vendor_wireless", False):
+            notes += "闭源版不集成 Mesh / DAWN；HNAT / WARP 相关功能使用前需验证兼容性。"
         notes += "\n"
     notes += "\n<details>\n<summary>源码与文件</summary>\n\n"
     notes += "源码：[" + source["branch"] + " · " + source["commit"][:7] + "](" + repository + "/commit/" + source["commit"] + ")。\n\n"
@@ -1084,20 +1115,21 @@ def collect(args):
     tree = Path(args.source)
     output = Path(args.output_dir)
     profile = lock["profile"]
-    target = tree / "bin/targets" / profile["target"] / profile["subtarget"]
+    platform = lock.get("platform") or profile_platform(profile)
+    target = tree / "bin/targets" / platform["target"] / platform["subtarget"]
     validate_config(lock["profile_id"], profile, (tree / ".config").read_text(), lock["config"])
     identity = read_json(tree / ".build-identity.json")
     if identity["profile_id"] != lock["profile_id"]:
         raise ValueError("Build identity profile mismatch")
-    manifest = validate_image_packages(target, profile, lock["profile_id"])
+    manifest = validate_image_packages(target, profile, lock["profile_id"], platform)
     if lock["profile_id"] == "jdcloud-re-cs-06":
-        sysupgrades = list(target.glob("*" + profile["image_match"] + "*sysupgrade*.bin"))
+        sysupgrades = list(target.glob("*" + platform["device"] + "*sysupgrade*.bin"))
         if len(sysupgrades) != 1:
             raise ValueError("Expected one RE-CS-06 sysupgrade image")
         validate_jdcloud_sysupgrade(sysupgrades[0], tree, profile.get("kernel_compression", "lzma"))
-    fit_images = seven_dr_images(target, profile) if lock["profile_id"].startswith("7dr7299-") else None
+    fit_images = seven_dr_images(target, profile, platform) if lock["profile_id"].startswith("7dr7299-") else None
     if lock["profile_id"] == "s20p-mtk":
-        sysupgrades = list(target.glob("*" + profile["image_match"] + "*sysupgrade*.bin"))
+        sysupgrades = list(target.glob("*" + platform["device"] + "*sysupgrade*.bin"))
         if len(sysupgrades) != 1:
             raise ValueError("Expected one S20P MTK sysupgrade image")
         validate_mtk_sysupgrade(sysupgrades[0])
@@ -1112,9 +1144,9 @@ def collect(args):
     for path in sorted(target.iterdir()):
         if not path.is_file():
             continue
-        is_image = profile["image_match"] in path.name and path.name.endswith(IMAGE_EXTENSIONS) and (
+        is_image = platform["device"] in path.name and path.name.endswith(IMAGE_EXTENSIONS) and (
             any(s in path.name for s in ("sysupgrade", "factory", "initramfs")) or
-            (profile["target"] == "x86" and re.search(r"\.(img(?:\.gz)?|vmdk|vdi|qcow2)$", path.name)))
+            (platform["target"] == "x86" and re.search(r"\.(img(?:\.gz)?|vmdk|vdi|qcow2)$", path.name)))
         if fit_images is not None:
             is_image = path in fit_images
         if is_image:
@@ -1128,7 +1160,7 @@ def collect(args):
     config_name = "Config-" + stamp + ".txt"
     shutil.copy2(tree / ".config", output / config_name)
     shutil.copy2(manifest, output / (stamp + ".manifest"))
-    (diagnostics / "config.seed").write_text("".join("CONFIG_" + key + "=" + value + "\n" for key, value in lock["config"].items()))
+    (diagnostics / "config.seed").write_text(serialize_config(lock["config"]))
     (diagnostics / "config.diff").write_text(run("./scripts/diffconfig.sh", cwd=tree) + "\n")
     assets = sorted(p.name for p in output.iterdir()) + ["build-info.json", "sha256sums"]
     info = {**{k: v for k, v in lock.items() if k not in ("config", "requested_packages")}, **identity,

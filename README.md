@@ -78,11 +78,13 @@ Scripts/             构建脚本、插件集成及配套资源
 
 | 配置文件 | 用途 |
 | :--- | :--- |
-| `Config/<机型>.txt` | 每机型一份完整配置，直接修改，无公共片段 |
-| [Config/profiles.toml](Config/profiles.toml) | 机型、源码、配置路径与硬件校验 |
+| `Config/<机型>.txt` | 每机型一份差异配置；target/device 选择在此，上游默认包由 defconfig 展开 |
+| [Config/profiles.toml](Config/profiles.toml) | 机型名称、源码、配置路径与真实构建变换 |
 | [Config/packages.toml](Config/packages.toml) | 插件源码与适用机型 |
 | [Config/firmware-defaults.toml](Config/firmware-defaults.toml) | 网络、主题、时区 |
 | [Config/build-settings.toml](Config/build-settings.toml) | 并发、自动构建、保留周期 |
+
+`profiles.toml` 只保存机型名称、主机名、源码、Config 路径及可选的 `patches` / `kernel_config`。target、subtarget 和 device 以机型 Config 中的唯一设备选择为准，不在 TOML 中重复维护。
 
 | 进阶选项 | 说明 |
 | :--- | :--- |
@@ -90,13 +92,13 @@ Scripts/             构建脚本、插件集成及配套资源
 | Python | 构建脚本需要 3.11+，Actions 已满足 |
 | `packages` | 本次构建追加选包，优先级高于配置文件；只能填写 `CONFIG_PACKAGE_name=y/m/n` |
 | `Config/PRIVATE.txt` | 可选的最后一层配置，应用到所选机型（`all` 时是全部机型） |
-| `Scripts/PRIVATE.sh` | 可选 Bash 钩子，在锁定插件集成之后、默认设置 / QModem 清理之前执行；工作目录为 OpenWrt 源码根目录 |
+| `Scripts/PRIVATE.sh` | 可选 Bash 钩子，在锁定插件集成之后、默认设置 / QModem 清理之前执行；工作目录为 OpenWrt 源码根目录，可使用 `WRT_PROFILE`、`WRT_TARGET`、`WRT_SUBTARGET` |
 | ccache | 暂不设容量上限；严格校验编译器内容，命中统计见 `logs/ccache.log` 与 Actions Summary |
 | 下载文件 | 不缓存 `dl`；每次构建通过 `make download` 并行下载，日志见 `logs/download.log` |
 | host / 工具链缓存 | 同一源码、target / subtarget 的机型共享；指纹只包含工具链相关源码和配置 |
 | hostpkg 缓存 | 独立保存软件包宿主工具，额外校验 feeds、插件、配置与集成脚本 |
 | MTK 旧版源码的 Go | 7DR7299 / S20P MTK 的 dae / daed 使用锁定的独立 Go 1.27 工具链；其他软件包继续使用上游 Go |
-| MTK 服务 | 厂商无线版不集成 DAWN；daed / honk 已集成，默认不启用 |
+| MTK 服务 | 7DR7299 与 S20P MTK 的闭源无线版不集成 DAWN |
 
 临时选包示例（可多行，也可用字面量 `\n` 分隔）：
 

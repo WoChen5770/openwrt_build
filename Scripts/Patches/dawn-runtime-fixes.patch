@@ -1,14 +1,4 @@
---- a/feeds/packages/net/dawn/files/dawn.config
-+++ b/feeds/packages/net/dawn/files/dawn.config
-@@ -25,7 +25,7 @@
- 	option update_hostapd '10'
- 	option update_tcp_con '10'
- 	option update_chan_util '5'
--	option update_beacon_reports '20'
-+	option update_beacon_reports '0'
- 
- config metric 'global'
- 	option min_probe_count '3'
+# update_beacon_reports intentionally keeps the upstream default and is not patched.
 --- a/feeds/packages/net/dawn/files/dawn.init
 +++ b/feeds/packages/net/dawn/files/dawn.init
 @@ -13,6 +13,57 @@

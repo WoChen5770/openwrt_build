@@ -50,9 +50,10 @@ def release_candidates(releases, profiles, values, now):
 
 def cache_candidates(caches, profiles, values, now):
     groups = defaultdict(list)
-    profile_groups = {name: ccache_group(name, profiles[name] if isinstance(profiles, dict) else {})
-                      for name in profiles}
-    compiler_groups = set(profile_groups.values())
+    profile_groups = {name: ccache_group(name, profiles[name]) for name in profiles}
+    # Fold pre-migration names into the groups derived from source and platform.
+    legacy_groups = {'viking-filogic': 'viking-mediatek-filogic'}
+    compiler_groups = set(profile_groups.values()) | set(profiles) | set(legacy_groups)
     installed = re.compile(r'^(toolchain|hostpkg)-v2-Linux-ubuntu24-([a-z0-9-]+)-[0-9a-f]{24}$')
     for cache in caches:
         if cache.get('size_in_bytes', 1) <= 0:
@@ -61,13 +62,14 @@ def cache_candidates(caches, profiles, values, now):
                        if re.fullmatch(r'ccache-v2-Linux-ubuntu24-' + re.escape(group) + r'-[0-9]+-[0-9]+',
                                        cache['key'])), None)
         if shared:
+            shared = legacy_groups.get(shared, shared)
             groups[(shared, 'ccache-v2', cache['ref'])].append(cache)
             continue
         match = installed.fullmatch(cache['key'])
         if match:
             kind, owner = match.groups()
             if kind == 'toolchain':
-                owner = profile_groups.get(owner, owner if owner in compiler_groups else None)
+                owner = profile_groups.get(owner, legacy_groups.get(owner, owner if owner in compiler_groups else None))
             elif owner not in profiles:
                 owner = None
             if owner:

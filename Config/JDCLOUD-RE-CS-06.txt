@@ -1,55 +1,39 @@
 # 京东云无线宝赵云 JDCloud RE-CS-06
 
 # 目标与镜像
-CONFIG_TARGET_ALL_PROFILES=n
 CONFIG_TARGET_DEVICE_qualcommbe_ipq53xx_DEVICE_jdcloud_re-cs-06=y
-CONFIG_TARGET_MULTI_PROFILE=y
 CONFIG_TARGET_PER_DEVICE_ROOTFS=y
-CONFIG_TARGET_ROOTFS_INITRAMFS=n
 CONFIG_TARGET_qualcommbe=y
 CONFIG_TARGET_qualcommbe_ipq53xx=y
 
-# 编译与内核
+# daed 的 BTF / BPF 构建依赖
 CONFIG_BPF_TOOLCHAIN_HOST=y
-CONFIG_CCACHE=y
-CONFIG_CCACHE_DIR=""
-CONFIG_BUSYBOX_CONFIG_FLOCK=y
 CONFIG_DAED_USE_KERNEL_BTF=y
-CONFIG_DEVEL=y
-CONFIG_FEED_pon_drivers=n
-CONFIG_FEED_pon_userspace=n
-CONFIG_FEED_video=n
 CONFIG_KERNEL_BPF_EVENTS=y
 CONFIG_KERNEL_DEBUG_INFO=y
 CONFIG_KERNEL_DEBUG_INFO_BTF=y
 CONFIG_KERNEL_DEBUG_INFO_REDUCED=n
 CONFIG_KERNEL_XDP_SOCKETS=y
+
+# BBR / fq
 CONFIG_PACKAGE_kmod-sched=y
 CONFIG_PACKAGE_kmod-tcp-bbr=y
 
-# 设备固件（必须编入 per-device rootfs，不能只作为模块保留）
-CONFIG_PACKAGE_ipq-wifi-jdcloud_re-cs-06=y
-
-# 组网与漫游
+# DAWN / 802.11s
 CONFIG_BATMAN_ADV_BLA=y
 CONFIG_PACKAGE_MAC80211_MESH=y
 CONFIG_PACKAGE_batctl-default=y
 CONFIG_PACKAGE_dawn=y
 CONFIG_PACKAGE_kmod-batman-adv=y
-CONFIG_PACKAGE_luci-app-mesh=n
 CONFIG_PACKAGE_luci-proto-batman-adv=y
 CONFIG_PACKAGE_umdns=y
-CONFIG_PACKAGE_wpad-mesh-openssl=n
 
-# 第三方插件（与 S20P MT76 对齐）
-CONFIG_EASYTIER_INCLUDE_WEBCONSOLE=n
+# 代理与加速
 CONFIG_PACKAGE_adguardhome=y
 CONFIG_PACKAGE_daed=y
 CONFIG_PACKAGE_easytier=y
 CONFIG_PACKAGE_honk=y
 CONFIG_PACKAGE_luci-app-adguardhome=y
-CONFIG_PACKAGE_luci-app-adguardhome-dashboard=n
-CONFIG_PACKAGE_luci-app-autoreboot=y
 CONFIG_PACKAGE_luci-app-daede=y
 CONFIG_PACKAGE_luci-app-daede_daed=y
 CONFIG_PACKAGE_luci-app-easytier=y
@@ -68,16 +52,14 @@ CONFIG_PACKAGE_luci-app-passwall_INCLUDE_SingBox=n
 CONFIG_PACKAGE_luci-app-passwall_INCLUDE_V2ray_Plugin=n
 CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Xray=y
 CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Xray_Plugin=n
-CONFIG_PACKAGE_luci-app-upnp=y
-CONFIG_PACKAGE_luci-app-wolultra=y
 CONFIG_PACKAGE_luci-i18n-honk-zh-cn=y
-CONFIG_PACKAGE_owrt-core-update=n
 CONFIG_PACKAGE_v2ray-geoip=y
 CONFIG_PACKAGE_v2ray-geosite=y
 CONFIG_PACKAGE_xray-core=y
 
 # 界面
 CONFIG_LUCI_LANG_zh_Hans=y
+CONFIG_PACKAGE_luci=y
 CONFIG_PACKAGE_luci-app-vantage=y
 CONFIG_PACKAGE_luci-ssl-openssl=y
 CONFIG_PACKAGE_luci-theme-shadcn=y

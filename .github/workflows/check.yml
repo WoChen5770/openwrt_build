@@ -16,20 +16,23 @@ jobs:
       - name: Validate configuration and script syntax
         run: |
           python3 - <<'PY'
-          from Scripts.build import config_for, defaults, read_toml, required_for, ROOT
+          from Scripts.build import (ROOT, config_for, defaults, profile_platform, read_toml,
+                                     serialize_config, validate_config)
           from Scripts.cleanup import settings
           settings()
           for path in (ROOT / 'Config').glob('*.toml'):
               read_toml(path)
-          for name, profile in read_toml(ROOT / 'Config/profiles.toml')['profiles'].items():
+          specs = read_toml(ROOT / 'Config/profiles.toml')
+          allowed_fields = {'display_name', 'hostname', 'source', 'config', 'patches', 'kernel_config'}
+          for name, profile in specs['profiles'].items():
+              assert set(profile) <= allowed_fields, name + ': unsupported profile fields'
+              assert profile['source'] in specs['sources'], name + ': unknown source'
               defaults(name)
               values = config_for(profile)
-              device = 'TARGET_DEVICE_' + profile['target'] + '_' + profile['subtarget'] + '_DEVICE_' + profile['device']
-              assert values.get(device) == 'y', name + ': device not selected'
+              platform = profile_platform(profile)
+              assert values.get(platform['device_key']) == 'y', name + ': device not selected'
               assert values.get('CCACHE') == 'y', name + ': compiler cache disabled'
-              # Dependencies supplied by upstream defconfig may be absent from the seed.
-              assert all(values.get(key, 'y') == 'y' for key in required_for(name, profile)), name + ': required option disabled'
-              assert all(values.get(key) == expected for key, expected in profile.get('expected_config', {}).items()), name + ': driver platform configuration mismatch'
+              validate_config(name, profile, serialize_config(values), values)
           PY
           python3 -m py_compile Scripts/*.py
           while IFS= read -r script; do bash -n "$script"; done < <(find Scripts -name '*.sh' -type f)

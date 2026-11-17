@@ -21,7 +21,7 @@ branch = "main"
 profiles = ["all"]
 mode = "whole"
 
-# 旧版 LuCI 的广告过滤界面
+# 仅 7DR7299 MTK 使用支持 APK / IPK 构建的 AdGuard Home LuCI 界面
 [luci-app-adguardhome]
 repository = "https://github.com/w9315273/luci-app-adguardhome.git"
 branch = "main"

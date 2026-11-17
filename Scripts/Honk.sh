@@ -1,11 +1,6 @@
 #!/bin/bash
-# Supported proxy profiles: install upstream packages alongside daed, without enabling honk.
+# Install the selected upstream packages alongside daed, without enabling honk.
 set -euo pipefail
-
-case "${WRT_CONFIG:-}" in
-	SUPERGATEWAY-S20P-MT76|SUPERGATEWAY-S20P-MTK|X86|TPLINK-7DR7299-MT76|TPLINK-7DR7299-MTK|JDCLOUD-RE-CS-06) ;;
-	*) exit 0 ;;
-esac
 
 for HONK_ROOT in ./package ./feeds/luci ./feeds/packages; do
 	if [ ! -d "$HONK_ROOT" ]; then
@@ -48,4 +43,4 @@ find ./package ./feeds/luci ./feeds/packages -maxdepth 3 \
 	-prune -exec rm -rf -- {} +
 cp -R "$HONK_TMP/source/honk" ./package/honk
 cp -R "$HONK_TMP/source/luci-app-honk" ./package/luci-app-honk
-echo "Honk source: $HONK_REPO @ $HONK_REF (prebuilt core; disabled by default)"
+echo "Honk source: $HONK_REPO @ $HONK_REF (prebuilt core)"
