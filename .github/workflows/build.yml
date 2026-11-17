@@ -30,8 +30,8 @@ on:
         type: boolean
         default: false
   schedule:
-    # GitHub Actions schedules use UTC: 19:00 UTC is 03:00 in Beijing.
-    - cron: '0 19 * * *'
+    # GitHub Actions schedules use UTC: 17:58 UTC is 01:58 in Beijing.
+    - cron: '58 17 * * *'
 
 permissions:
   contents: read
