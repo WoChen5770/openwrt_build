@@ -565,6 +565,19 @@ def apply_source_patches(tree, profile, values):
         run("patch", "--batch", "--forward", "--fuzz=0", "-p1", "-i", str(path), cwd=tree)
 
 
+def apply_dawn_btm_patch(tree, values):
+    if values.get("PACKAGE_dawn") not in ("y", "m"):
+        return
+    dawn_package = tree / "feeds/packages/net/dawn"
+    if not (dawn_package / "Makefile").is_file():
+        raise ValueError("DAWN recipe missing from the packages feed")
+    package_patches = dawn_package / "patches"
+    package_patches.mkdir(exist_ok=True)
+    print("Staging DAWN package patch: 950-advisory-btm.patch", flush=True)
+    shutil.copyfile(ROOT / "Scripts/Patches/dawn-advisory-btm.patch",
+                    package_patches / "950-advisory-btm.patch")
+
+
 def apply_kernel_config(tree, profile):
     """Scoped platform BPF settings required by the 7DR7299 reference builds."""
     specification = profile.get("kernel_config")
@@ -943,6 +956,7 @@ def prepare(args):
                if value in ("y", "m") and actual_values.get(key) not in (value, "y")]
     if missing:
         raise ValueError("Private/temporary options not selected: " + ", ".join(missing))
+    apply_dawn_btm_patch(tree, actual_values)
     print("Configuration verified: " + lock["profile_id"])
 
 

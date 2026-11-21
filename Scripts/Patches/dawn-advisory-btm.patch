@@ -1,0 +1,390 @@
+--- a/src/include/ubus.h
++++ b/src/include/ubus.h
+@@ -100,12 +100,6 @@
+ int send_blob_attr_via_network(struct blob_attr* msg, char* method);
+ 
+ /**
+- * Set client timer for updating the clients.
+- * @param time
+- */
+-void add_client_update_timer(time_t time);
+-
+-/**
+  * Kick client from hostapd interface.
+  * @param id - the ubus id.
+  * @param client_addr - the client adress of the client to kick.
+@@ -123,27 +117,12 @@
+  */
+ int send_set_probe(struct dawn_mac client_addr);
+ 
+-/**
+- * Function to tell a client that it is about to be disconnected.
+- * @param id
+- * @param client_addr
+- * @param dest_ap
+- * @param duration
+- * @return - 0 = asynchronous (client has been told to remove itself, and caller should manage arrays); 1 = synchronous (caller should assume arrays are updated)
+- */
+-int wnm_disassoc_imminent(uint32_t id, const struct dawn_mac client_addr, struct kicking_nr* neighbor_list, int threshold, uint32_t duration);
++/* Request voluntary roaming, with a cooldown per source BSSID and STA.
++ * Returns true when hostapd accepted the request. */
++bool bss_transition_request(uint32_t id, struct dawn_mac bssid, struct dawn_mac client,
++                            struct kicking_nr *neighbors, int minimum_score);
+ 
+ /**
+- * Function to ask a client to move to another AP, but not enforce it.
+- * @param id
+- * @param client_addr
+- * @param dest_ap
+- * @param duration
+- * @return - 0 = asynchronous (client has been told to remove itself, and caller should manage arrays); 1 = synchronous (caller should assume arrays are updated)
+- */
+-int bss_transition_request(uint32_t id, const struct dawn_mac client_addr, struct kicking_nr* neighbor_list, uint32_t duration);
+-
+-/**
+  * Send control message to all hosts to add the mac to a don't control list.
+  * @param client_addr
+  * @return
+--- a/src/storage/datastorage.c
++++ b/src/storage/datastorage.c
+@@ -1,3 +1,4 @@
++#include <limits.h>
+ #include <stdbool.h>
+ #include <stdio.h>
+ 
+@@ -564,7 +565,7 @@
+     dawn_mutex_require(&ap_array_mutex);
+     ap* kicking_ap = ap_array_get_ap(bssid_mac);
+ 
+-    int kicked_clients = 0;
++    int requests_sent = 0;
+ 
+     // Keep a list of nearby APs to update local AP Neighbor Report from
+     struct kicking_nr* ap_nr_list = NULL;
+@@ -574,8 +575,8 @@
+     // Seach for BSSID
+     client *j = *client_find_first_bc_entry(kicking_ap->bssid_addr, dawn_mac_null, false);
+ 
+-    // Go through clients: only kick one each time (not sure why, was in original algorithm...)
+-    while (kicked_clients == 0 && j  != NULL && mac_is_equal_bb(j->bssid_addr, kicking_ap->bssid_addr)) {
++    // Send at most one BTM per BSS per scan.
++    while (requests_sent == 0 && j  != NULL && mac_is_equal_bb(j->bssid_addr, kicking_ap->bssid_addr)) {
+         struct kicking_nr *kick_nr_list = NULL;
+ 
+         int kick_type = 0;
+@@ -661,47 +662,14 @@
+                     }
+                     else
+                     {
+-                        if (have_bandwidth_iwinfo && dawn_metric.bandwidth_threshold != 0)
+-                            dawnlog_always("Client " MACSTR ": Kicking due to low active data transfer: RX rate %f is at or below the %d limit\n", MAC2STR(j->client_addr.u8), rx_rate, dawn_metric.bandwidth_threshold);
+-                        else
+-                            dawnlog_always("Client " MACSTR ": Kicking as no active transmission data for client, and / or limit of %d is OK.\n",
+-                                MAC2STR(j->client_addr.u8), dawn_metric.bandwidth_threshold);
+-
+-                        print_client_entry(DAWNLOG_TRACE, j);
++                        int minimum_score = kick_type == 1
++                            ? own_score + dawn_metric.kicking_threshold : INT_MIN;
+ 
+-                        if (dawnlog_showing(DAWNLOG_INFO))
+-                        {
+-                            for (struct kicking_nr* n = kick_nr_list; n; n = n->next)
+-                                dawnlog_info("Kicking NR entry: " NR_MACSTR ", score=%d\n", NR_MAC2STR(n->nr_ap->neighbor_report), n->score);
+-                        }
+-
+-                        // here we should send a messsage to set the probe.count for all aps to the min that there is no delay between switching
+-                        // the hearing map is full...
+-                        send_set_probe(j->client_addr);
+-
+-                        // don't deauth station? <- deauth is better!
+-                        // maybe we can use handovers...
+-                        //del_client_interface(id, client_array[j].client_addr, NO_MORE_STAS, 1, 1000);
+-                        if (kick_type == 1)
+-                        {
+-                            int sync_kick = wnm_disassoc_imminent(id, j->client_addr, kick_nr_list, own_score + dawn_metric.kicking_threshold, dawn_metric.duration);
+-
+-                            if (!sync_kick)
+-                            {
+-                                client_array_delete(j, false);
+-
+-                                // don't delete clients in a row. use update function again...
+-                                // -> chan_util update, ...
+-                                //FIXME: Why / 4?
+-                                add_client_update_timer(timeout_config.update_client * 1000 / 4);
+-                            }
+-                        }
+-                        else if (kick_type == 2)
+-                        {
+-                            bss_transition_request(id, j->client_addr, kick_nr_list, dawn_metric.duration);
+-                        }
+-
+-                        kicked_clients++;
++                        /* The station remains associated until hostapd observes
++                         * a real departure. A BTM only makes a suggestion. */
++                        if (bss_transition_request(id, kicking_ap->bssid_addr,
++                                                   j->client_addr, kick_nr_list, minimum_score))
++                            requests_sent++;
+                     }
+                 }
+             }
+@@ -738,7 +706,7 @@
+     dawn_mutex_unlock(&probe_array_mutex);
+     dawn_mutex_unlock(&client_array_mutex);
+ 
+-    return kicked_clients;
++    return requests_sent;
+ }
+ 
+ void update_iw_info(struct dawn_mac bssid_mac) {
+--- a/src/test/test_storage.c
++++ b/src/test/test_storage.c
+@@ -38,64 +38,25 @@
+     return 0;
+ }
+ 
+-int bss_transition_request(uint32_t id, const struct dawn_mac client_addr, struct kicking_nr* neighbor_list, uint32_t duration)
++bool bss_transition_request(uint32_t id, struct dawn_mac bssid, struct dawn_mac client_addr,
++                            struct kicking_nr *neighbor_list, int minimum_score)
+ {
+-    int ret = 0;
+-
+     printf("bss_transition_request() was called...\n");
+ 
+-    if (neighbor_list != NULL)
+-    {
+-        // Fake a client being disassociated and then rejoining on the recommended neighbor
+-        client* mc = client_array_get_client(client_addr);
+-        mc = client_array_delete(mc, true);
+-        // Originally, there was only one AP, not a list of them; that AP is at the tail of the list
+-        // Use it to keep the results the same as before
+-        while (neighbor_list && neighbor_list->next)
+-            neighbor_list = neighbor_list->next;
+-        for (int n = 0; n < ETH_ALEN; n++)
+-            sscanf(neighbor_list->nr_ap->neighbor_report + n * 2, "%2hhx", mc->bssid_addr.u8 + n);
+-        insert_client_to_array(mc, 0);
+-        printf("BSS TRANSITION TO " NR_MACSTR "\n", NR_MAC2STR(neighbor_list->nr_ap->neighbor_report));
+-
+-        // Tell caller not to change the arrays any further
+-        ret = 1;
+-    }
+-
+-    return ret;
+-}
+-
+-
+-int wnm_disassoc_imminent(uint32_t id, const struct dawn_mac client_addr, struct kicking_nr* neighbor_list, int threshold, uint32_t duration)
+-{
+-int ret = 0;
+-
+-    printf("wnm_disassoc_imminent() was called...\n");
+-
+-    if (neighbor_list != NULL)
+-    {
+-        // Fake a client being disassociated and then rejoining on the recommended neighbor
+-        client *mc = client_array_get_client(client_addr);
+-        mc = client_array_delete(mc, true);
+-        // Originally, there was only one AP, not a list of them; that AP is at the tail of the list
+-        // Use it to keep the results the same as before
+-        while (neighbor_list && neighbor_list->next)
+-            neighbor_list = neighbor_list->next;
+-        for (int n=0; n < ETH_ALEN; n++)
+-            sscanf(neighbor_list->nr_ap->neighbor_report + n*2, "%2hhx", mc->bssid_addr.u8 + n);
+-        insert_client_to_array(mc, 0);
+-        printf("BSS TRANSITION TO " NR_MACSTR "\n", NR_MAC2STR(neighbor_list->nr_ap->neighbor_report));
++    // Simulate a station accepting the suggestion and roaming to a candidate.
++    struct kicking_nr *candidate = NULL;
++    for (; neighbor_list && neighbor_list->score >= minimum_score; neighbor_list = neighbor_list->next)
++        candidate = neighbor_list;
++    if (!candidate)
++        return false;
+ 
+-        // Tell caller not to change the arrays any further
+-        ret = 1;
+-    }
+-
+-    return ret;
+-}
+-
+-void add_client_update_timer(time_t time)
+-{
+-    printf("add_client_update_timer() was called...\n");
++    client *station = client_array_get_client(client_addr);
++    station = client_array_delete(station, true);
++    for (int n = 0; n < ETH_ALEN; n++)
++        sscanf(candidate->nr_ap->neighbor_report + n * 2, "%2hhx", station->bssid_addr.u8 + n);
++    insert_client_to_array(station, 0);
++    printf("BSS TRANSITION TO " NR_MACSTR "\n", NR_MAC2STR(candidate->nr_ap->neighbor_report));
++    return true;
+ }
+ 
+ void del_client_interface(uint32_t id, const struct dawn_mac client_addr, uint32_t reason, uint8_t deauth, uint32_t ban_time)
+--- a/src/utils/ubus.c
++++ b/src/utils/ubus.c
+@@ -3,6 +3,7 @@
+ #include <arpa/inet.h>
+ #include <net/if.h>
+ #include <netinet/in.h>
++#include <time.h>
+ 
+ #include "memory_utils.h"
+ #include "networksocket.h"
+@@ -223,9 +224,6 @@
+ static int build_hearing_map_sort_client(struct blob_buf* b);
+ 
+ /*** CODE START ***/
+-void add_client_update_timer(time_t time) {
+-    uloop_timeout_set(&client_timer, time);
+-}
+ 
+ static inline int
+ subscription_wait(struct ubus_event_handler *handler) {
+@@ -1206,78 +1204,95 @@
+     dawn_unregmem(&b);
+ }
+ 
+-int bss_transition_request(uint32_t id, const struct dawn_mac client_addr, struct kicking_nr* neighbor_list, uint32_t duration) {
+-    struct blob_buf b = { 0 };
++/* BTM candidate validity is in beacon intervals. Keep it independent of the
++ * 802.11k measurement duration and the hostapd disconnect timer. */
++#define BTM_VALIDITY_BEACONS 150
++#define BTM_COOLDOWN_MS 30000
+ 
+-    dawnlog_debug_func("Entering...");
++struct btm_cooldown {
++    struct list_head list;
++    struct dawn_mac bssid;
++    struct dawn_mac client;
++    uint64_t until_ms;
++};
+ 
+-    blob_buf_init(&b, 0);
+-    dawn_regmem(&b);
+-    blobmsg_add_macaddr(&b, "addr", client_addr);
+-    blobmsg_add_u32(&b, "disassociation_timer", duration);
+-    blobmsg_add_u32(&b, "validity_period", duration);
+-    blobmsg_add_u8(&b, "abridged", 1); // prefer aps in neighborlist
+-    blobmsg_add_u8(&b, "disassociation_imminent", 0); // Just a friendly request - no disassociation
++static LIST_HEAD(btm_cooldowns);
+ 
+-    void* nbs = blobmsg_open_array(&b, "neighbors");
++/* Keep cooldowns across refreshes of DAWN's station table. These entries
++ * expire independently and are local to the AP that sent the request. */
++static bool btm_start_cooldown(struct dawn_mac bssid, struct dawn_mac client)
++{
++    struct timespec now;
++    if (clock_gettime(CLOCK_MONOTONIC, &now) != 0)
++        return false;
+ 
+-    // Add the first N AP
+-    int neighbors_added = 0;
+-    while (neighbors_added < dawn_metric.disassoc_nr_length && neighbor_list != NULL) {
+-        dawnlog_info("BSS TRANSITION NEIGHBOR " NR_MACSTR "\n", NR_MAC2STR(neighbor_list->nr_ap->neighbor_report));
+-        blobmsg_add_string(&b, NULL, neighbor_list->nr_ap->neighbor_report);
+-        neighbor_list = neighbor_list->next;
+-        neighbors_added++;
++    uint64_t now_ms = (uint64_t)now.tv_sec * 1000 + now.tv_nsec / 1000000;
++    struct btm_cooldown *entry, *next;
++    list_for_each_entry_safe(entry, next, &btm_cooldowns, list) {
++        if (entry->until_ms <= now_ms) {
++            list_del(&entry->list);
++            dawn_free(entry);
++        } else if (mac_is_equal_bb(entry->bssid, bssid) &&
++                   mac_is_equal_bb(entry->client, client)) {
++            return false;
++        }
+     }
+ 
+-    blobmsg_close_array(&b, nbs);
+-    // do not ask to leave without providing candidates, unless NRs are explicitly disabled or unavailable
+-    if (neighbors_added || 
+-            (dawn_metric.disassoc_nr_length <= 0) || (dawn_metric.set_hostapd_nr <= 0) ||
+-            // disabling 802.11k shouldn't matter unless we build dynamic NR list (consider empty rrm_mode)
+-            ((timeout_config.update_beacon_reports <= 0) && (dawn_metric.set_hostapd_nr == 2)) ) {
+-        int timeout = 1;
+-        ubus_invoke(ctx, id, "bss_transition_request", b.head, NULL, NULL, timeout * 1000);
+-    }
++    entry = dawn_malloc(sizeof(*entry));
++    if (!entry)
++        return false;
+ 
+-    blob_buf_free(&b);
+-    dawn_unregmem(&b);
+-
+-    return 0;
++    entry->bssid = bssid;
++    entry->client = client;
++    entry->until_ms = now_ms + BTM_COOLDOWN_MS;
++    list_add_tail(&entry->list, &btm_cooldowns);
++    return true;
+ }
+ 
+-int wnm_disassoc_imminent(uint32_t id, const struct dawn_mac client_addr, struct kicking_nr* neighbor_list, int threshold, uint32_t duration) {
+-    struct blob_buf b = {0};
++bool bss_transition_request(uint32_t id, struct dawn_mac bssid, struct dawn_mac client,
++                            struct kicking_nr *neighbors, int minimum_score)
++{
++    struct blob_buf b = { 0 };
++    int added = 0;
++    bool sent = false;
+ 
+-    dawnlog_debug_func("Entering...");
+-
+     blob_buf_init(&b, 0);
+     dawn_regmem(&b);
+-    blobmsg_add_macaddr(&b, "addr", client_addr);
+-    blobmsg_add_u8(&b, "disassociation_imminent", 1);
+-    blobmsg_add_u32(&b, "disassociation_timer", duration);
+-    blobmsg_add_u32(&b, "validity_period", duration);
+-    blobmsg_add_u8(&b, "abridged", 1); // prefer aps in neighborlist
++    blobmsg_add_macaddr(&b, "addr", client);
++    blobmsg_add_u32(&b, "disassociation_timer", 0);
++    blobmsg_add_u32(&b, "validity_period", BTM_VALIDITY_BEACONS);
++    blobmsg_add_u8(&b, "abridged", 1);
++    blobmsg_add_u8(&b, "disassociation_imminent", 0);
+ 
+-    void* nbs = blobmsg_open_array(&b, "neighbors");
++    void *nbs = blobmsg_open_array(&b, "neighbors");
++    for (; added < dawn_metric.disassoc_nr_length && neighbors &&
++           neighbors->score >= minimum_score; neighbors = neighbors->next) {
++        blobmsg_add_string(&b, NULL, neighbors->nr_ap->neighbor_report);
++        added++;
++    }
++    blobmsg_close_array(&b, nbs);
+ 
+-    // Add the first N AP that reach threshold, where list order id high->low score
+-    int neighbors_added = 0;
+-    while(neighbors_added < dawn_metric.disassoc_nr_length && neighbor_list != NULL && neighbor_list->score >= threshold) {
+-        dawnlog_info("WNM DISASSOC NEIGHBOR " NR_MACSTR ", Score=%d\n", NR_MAC2STR(neighbor_list->nr_ap->neighbor_report), neighbor_list->score);
+-        blobmsg_add_string(&b, NULL, neighbor_list->nr_ap->neighbor_report);
+-        neighbor_list = neighbor_list->next;
+-        neighbors_added++;
++    /* Preserve operation with unavailable or explicitly disabled NRs. */
++    bool eligible = added > 0 || dawn_metric.disassoc_nr_length <= 0 ||
++                    dawn_metric.set_hostapd_nr <= 0 ||
++                    (timeout_config.update_beacon_reports <= 0 && dawn_metric.set_hostapd_nr == 2);
++    if (eligible && btm_start_cooldown(bssid, client)) {
++        send_set_probe(client);
++        /* A timed-out call may already have sent a BTM. Keep its cooldown. */
++        int ret = ubus_invoke(ctx, id, "bss_transition_request", b.head, NULL, NULL, 1000);
++        if (ret) {
++            dawnlog_warning("Advisory BTM to " MACSTR " failed: %s\n",
++                            MAC2STR(client.u8), ubus_strerror(ret));
++        } else {
++            dawnlog_always("Sent advisory BTM to " MACSTR " on " MACSTR "\n",
++                           MAC2STR(client.u8), MAC2STR(bssid.u8));
++            sent = true;
++        }
+     }
+ 
+-    blobmsg_close_array(&b, nbs);
+-    int timeout = 1;
+-    ubus_invoke(ctx, id, "bss_transition_request", b.head, NULL, NULL, timeout * 1000);
+-
+     blob_buf_free(&b);
+     dawn_unregmem(&b);
+-
+-    return 0;
++    return sent;
+ }
+ 
+ static void ubus_umdns_cb(struct ubus_request *req, int type, struct blob_attr *msg) {
