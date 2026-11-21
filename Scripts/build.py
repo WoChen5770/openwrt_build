@@ -480,6 +480,16 @@ def integrate(lock, tree):
                 continue
             dirs = package.get("directories") or (["."] if (clone / "Makefile").exists() else
                                                       [p.name for p in clone.iterdir() if p.is_dir() and (p / "Makefile").exists()])
+            if mode == "resources":
+                for directory in dirs:
+                    source = clone / directory
+                    if not source.is_dir():
+                        raise ValueError(name + ": missing resource directory " + directory)
+                    destination = tree / "package" / directory
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copytree(source, destination, dirs_exist_ok=True,
+                                    ignore=shutil.ignore_patterns(".git", ".github"))
+                continue
             for directory in dirs:
                 if not (clone / directory / "Makefile").is_file():
                     raise ValueError(name + ": missing recipe " + directory)

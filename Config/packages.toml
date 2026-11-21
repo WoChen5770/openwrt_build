@@ -44,6 +44,14 @@ profiles = ["s20p-mt76", "jdcloud-re-cs-06", "s20p-mtk", "x86-64", "7dr7299-mt76
 mode = "nested"
 directories = ["dae", "daed", "luci-app-daede", "v2ray-geodata"]
 
+# daed 配方需要同级的 ci/patches/dae-core；该目录由 daed 源码仓库维护
+[daed-ci]
+repository = "https://github.com/kenzok8/openwrt-daede.git"
+branch = "main"
+profiles = ["s20p-mt76", "jdcloud-re-cs-06", "s20p-mtk", "x86-64", "7dr7299-mt76", "7dr7299-mtk"]
+mode = "resources"
+directories = ["ci"]
+
 # 旧版源码的独立代理编译器；固定兼容快照，不随插件分支更新
 [golang-daed]
 repository = "https://github.com/immortalwrt/packages.git"
