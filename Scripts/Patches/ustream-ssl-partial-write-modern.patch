@@ -1,0 +1,40 @@
+diff --git a/ustream-ssl.c b/ustream-ssl.c
+--- a/ustream-ssl.c
++++ b/ustream-ssl.c
+@@ -132,6 +132,7 @@
+ static int ustream_ssl_write(struct ustream *s, const char *buf, int len, bool more)
+ {
+ 	struct ustream_ssl *us = container_of(s, struct ustream_ssl, stream);
++	int written = 0;
+ 
+ 	if (!us->connected || us->error)
+ 		return 0;
+@@ -139,7 +140,27 @@
+ 	if (us->conn && us->conn->w.data_bytes)
+ 		return 0;
+ 
+-	return __ustream_ssl_write(us, buf, len);
++	/*
++	 * A positive short write is not necessarily a blocked connection: the
++	 * TLS backend may accept a full record and return before consuming the
++	 * caller's remainder. Keep feeding the remainder until it is accepted or
++	 * the backend reports that it cannot make progress. Otherwise the ustream
++	 * core buffers the remainder, but may never receive another write event
++	 * to flush it, truncating large HTTPS responses at the TLS record limit.
++	 */
++	while (written < len) {
++		int ret = __ustream_ssl_write(us, buf + written, len - written);
++
++		if (ret < 0)
++			return ret;
++
++		written += ret;
++
++		if (ret == 0)
++			break;
++	}
++
++	return written;
+ }
+ 
+ static void ustream_ssl_set_read_blocked(struct ustream *s)

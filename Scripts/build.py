@@ -608,6 +608,23 @@ def ustream_ssl_write_is_fixed(source):
                 re.search(r"\breturn\s+written\s*;", body))
 
 
+def ustream_ssl_write_patch(source):
+    """Select the partial-write patch matching the upstream write implementation."""
+    if ustream_ssl_write_is_fixed(source):
+        return None
+    body = c_function_body(source, "ustream_ssl_write")
+    if "pending_write" in body:
+        name = "ustream-ssl-partial-write.patch"
+    elif re.search(r"\breturn\s+__ustream_ssl_write\(us,\s*buf,\s*len\);", body):
+        name = "ustream-ssl-partial-write-modern.patch"
+    else:
+        raise ValueError("ustream-ssl write implementation changed upstream; update the partial-write patches")
+    patch = ROOT / "Scripts/Patches" / name
+    if not patch.is_file():
+        raise ValueError("ustream-ssl partial-write patch is missing: " + name)
+    return patch
+
+
 def fetch_ustream_ssl_source(tree, makefile_text):
     download_mk = tree / "include/download.mk"
     if not download_mk.is_file():
@@ -647,14 +664,12 @@ def apply_ustream_ssl_write_patch(tree):
     source, version = fetch_ustream_ssl_source(tree, makefile.read_text())
     patches = package / "patches"
     target = patches / "900-flush-partial-ssl-writes.patch"
-    if ustream_ssl_write_is_fixed(source):
+    patch = ustream_ssl_write_patch(source)
+    if patch is None:
         target.unlink(missing_ok=True)
         print("Skipping ustream-ssl write fix: upstream " + version +
               " already flushes partial writes", flush=True)
         return
-    patch = ROOT / "Scripts/Patches/ustream-ssl-partial-write.patch"
-    if not patch.is_file():
-        raise ValueError("ustream-ssl partial-write patch is missing")
     with tempfile.TemporaryDirectory(prefix="ustream-ssl-patch-") as directory:
         source_dir = Path(directory)
         (source_dir / "ustream-ssl.c").write_text(source)
@@ -662,8 +677,7 @@ def apply_ustream_ssl_write_patch(tree):
             run("git", "apply", "--check", "--whitespace=nowarn", "-p1", str(patch), cwd=source_dir)
         except subprocess.CalledProcessError:
             raise ValueError("ustream-ssl " + version +
-                             " changed and the partial-write patch no longer applies; update " +
-                             "Scripts/Patches/ustream-ssl-partial-write.patch") from None
+                             " changed and " + patch.name + " no longer applies; update that patch") from None
     patches.mkdir(exist_ok=True)
     shutil.copyfile(patch, target)
     print("Staging ustream-ssl package patch: " + target.name + " for " + version, flush=True)
