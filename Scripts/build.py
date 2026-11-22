@@ -18,7 +18,6 @@ import urllib.request
 
 ROOT = Path(__file__).resolve().parents[1]
 SHA = re.compile(r"^[0-9a-f]{40}$")
-USTREAM_SSL_PARTIAL_WRITE_VERSION = "cea28c5bc43ae80c3531c98f4e4dc67b7dcf0ebb"
 
 
 def read_json(path):
@@ -589,21 +588,85 @@ def apply_dawn_btm_patch(tree, values):
                     package_patches / "950-advisory-btm.patch")
 
 
+def makefile_value(content, name, filename="ustream-ssl Makefile"):
+    match = re.search(r"(?m)^" + re.escape(name) + r"\s*(?::|\?)?=\s*(.*?)\s*$", content)
+    if not match or not match.group(1):
+        raise ValueError(filename + " missing " + name)
+    return match.group(1).strip()
+
+
+def c_function_body(source, name):
+    match = re.search(r"(?ms)^static int " + re.escape(name) + r"\([^\n]*\)\s*\n\{(.*?)^\}", source)
+    if not match:
+        raise ValueError("ustream-ssl source missing " + name + "()")
+    return match.group(1)
+
+
+def ustream_ssl_write_is_fixed(source):
+    body = c_function_body(source, "ustream_ssl_write")
+    return bool(re.search(r"\bwhile\s*\(\s*written\s*<\s*len\s*\)", body) and
+                re.search(r"\breturn\s+written\s*;", body))
+
+
+def fetch_ustream_ssl_source(tree, makefile_text):
+    download_mk = tree / "include/download.mk"
+    if not download_mk.is_file():
+        raise ValueError("ustream-ssl source metadata missing: include/download.mk")
+    project_git = makefile_value(download_mk.read_text(), "PROJECT_GIT", "include/download.mk").rstrip("/")
+    source_url = makefile_value(makefile_text, "PKG_SOURCE_URL")
+    source_url = source_url.replace("$(PROJECT_GIT)", project_git).replace("${PROJECT_GIT}", project_git)
+    if "$(" in source_url or "${" in source_url:
+        raise ValueError("Cannot resolve ustream-ssl source URL: " + source_url)
+    if not source_url.startswith("https://"):
+        raise ValueError("ustream-ssl source URL must use HTTPS: " + source_url)
+    source_proto = makefile_value(makefile_text, "PKG_SOURCE_PROTO")
+    if source_proto != "git":
+        raise ValueError("Unsupported ustream-ssl source protocol: " + source_proto)
+    version = makefile_value(makefile_text, "PKG_SOURCE_VERSION")
+    if not SHA.fullmatch(version):
+        raise ValueError("ustream-ssl source version must be a full commit SHA: " + version)
+    with tempfile.TemporaryDirectory(prefix="ustream-ssl-source-") as directory:
+        repo = Path(directory)
+        env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
+        run("git", "-C", str(repo), "init", "--quiet", env=env)
+        run("git", "-C", str(repo), "remote", "add", "origin", source_url, env=env)
+        run("git", "-C", str(repo), "fetch", "--quiet", "--depth=1", "--no-tags", "origin", version, env=env)
+        files = run("git", "-C", str(repo), "ls-tree", "-r", "--name-only", "FETCH_HEAD").splitlines()
+        if "ustream-ssl.c" not in files:
+            raise ValueError("ustream-ssl source layout changed: ustream-ssl.c is missing")
+        source = run("git", "-C", str(repo), "show", "FETCH_HEAD:ustream-ssl.c") + "\n"
+    return source, version
+
+
 def apply_ustream_ssl_write_patch(tree):
-    """Stage the partial-write fix for the affected ustream-ssl release."""
+    """Validate and stage the partial-write fix across ustream-ssl updates."""
     package = tree / "package/libs/ustream-ssl"
     makefile = package / "Makefile"
     if not makefile.is_file():
-        return
-    version = "PKG_SOURCE_VERSION:=" + USTREAM_SSL_PARTIAL_WRITE_VERSION
-    if version not in makefile.read_text():
-        print("Skipping ustream-ssl write fix: package source version changed", flush=True)
-        return
+        raise ValueError("ustream-ssl package recipe is missing")
+    source, version = fetch_ustream_ssl_source(tree, makefile.read_text())
     patches = package / "patches"
-    patches.mkdir(exist_ok=True)
     target = patches / "900-flush-partial-ssl-writes.patch"
-    print("Staging ustream-ssl package patch: " + target.name, flush=True)
-    shutil.copyfile(ROOT / "Scripts/Patches/ustream-ssl-partial-write.patch", target)
+    if ustream_ssl_write_is_fixed(source):
+        target.unlink(missing_ok=True)
+        print("Skipping ustream-ssl write fix: upstream " + version +
+              " already flushes partial writes", flush=True)
+        return
+    patch = ROOT / "Scripts/Patches/ustream-ssl-partial-write.patch"
+    if not patch.is_file():
+        raise ValueError("ustream-ssl partial-write patch is missing")
+    with tempfile.TemporaryDirectory(prefix="ustream-ssl-patch-") as directory:
+        source_dir = Path(directory)
+        (source_dir / "ustream-ssl.c").write_text(source)
+        try:
+            run("git", "apply", "--check", "--whitespace=nowarn", "-p1", str(patch), cwd=source_dir)
+        except subprocess.CalledProcessError:
+            raise ValueError("ustream-ssl " + version +
+                             " changed and the partial-write patch no longer applies; update " +
+                             "Scripts/Patches/ustream-ssl-partial-write.patch") from None
+    patches.mkdir(exist_ok=True)
+    shutil.copyfile(patch, target)
+    print("Staging ustream-ssl package patch: " + target.name + " for " + version, flush=True)
 
 
 def apply_kernel_config(tree, profile):
