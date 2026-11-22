@@ -18,6 +18,7 @@ import urllib.request
 
 ROOT = Path(__file__).resolve().parents[1]
 SHA = re.compile(r"^[0-9a-f]{40}$")
+USTREAM_SSL_PARTIAL_WRITE_VERSION = "cea28c5bc43ae80c3531c98f4e4dc67b7dcf0ebb"
 
 
 def read_json(path):
@@ -588,6 +589,23 @@ def apply_dawn_btm_patch(tree, values):
                     package_patches / "950-advisory-btm.patch")
 
 
+def apply_ustream_ssl_write_patch(tree):
+    """Stage the partial-write fix for the affected ustream-ssl release."""
+    package = tree / "package/libs/ustream-ssl"
+    makefile = package / "Makefile"
+    if not makefile.is_file():
+        return
+    version = "PKG_SOURCE_VERSION:=" + USTREAM_SSL_PARTIAL_WRITE_VERSION
+    if version not in makefile.read_text():
+        print("Skipping ustream-ssl write fix: package source version changed", flush=True)
+        return
+    patches = package / "patches"
+    patches.mkdir(exist_ok=True)
+    target = patches / "900-flush-partial-ssl-writes.patch"
+    print("Staging ustream-ssl package patch: " + target.name, flush=True)
+    shutil.copyfile(ROOT / "Scripts/Patches/ustream-ssl-partial-write.patch", target)
+
+
 def apply_kernel_config(tree, profile):
     """Scoped platform BPF settings required by the 7DR7299 reference builds."""
     specification = profile.get("kernel_config")
@@ -951,6 +969,7 @@ def prepare(args):
     vendor = lock["source"].get("vendor_wireless", False)
     apply_defaults(tree, lock["defaults"], vendor, lock["source"].get("wireless_defaults"))
     apply_source_patches(tree, lock["profile"], lock["config"])
+    apply_ustream_ssl_write_patch(tree)
     apply_kernel_config(tree, lock["profile"])
     customize_luci(tree, lock["defaults"], identity)
     write_json(tree / ".build-identity.json", identity)

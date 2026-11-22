@@ -1,0 +1,60 @@
+diff --git a/ustream-ssl.c b/ustream-ssl.c
+index a87ff6c..e4b23f9 100644
+--- a/ustream-ssl.c
++++ b/ustream-ssl.c
+@@ -166,7 +166,7 @@ static void ustream_ssl_notify_state(struct ustream *s)
+ static int ustream_ssl_write(struct ustream *s, const char *buf, int len, bool more)
+ {
+ 	struct ustream_ssl *us = container_of(s, struct ustream_ssl, stream);
+-	int ret;
++	int written = 0;
+ 
+ 	if (!us->connected || us->error)
+ 		return 0;
+@@ -180,21 +180,36 @@ static int ustream_ssl_write(struct ustream *s, const char *buf, int len, bool m
+ 	 * retry to cover exactly the data of the failed call: with a shorter
+ 	 * retry OpenSSL fails ("bad write retry"), while mbedTLS reports the
+ 	 * retried length as written even though only the previously packaged
+-	 * record is sent, corrupting the stream. Cap the retry length to the
++	 * record is sent, corrupting the stream. Cap each retry length to the
+ 	 * length of the failed call to keep both libraries consistent.
++	 *
++	 * A positive short write is not necessarily a blocked connection: the
++	 * TLS backend may accept a full record and return before consuming the
++	 * caller's remainder. Keep feeding the remainder until it is accepted or
++	 * the backend reports that it cannot make progress. Otherwise the ustream
++	 * core buffers the remainder, but may never receive another write event
++	 * to flush it, truncating large HTTPS responses at the TLS record limit.
+ 	 */
+-	if (us->pending_write > 0 && len > us->pending_write)
+-		len = us->pending_write;
++	while (written < len) {
++		int ret, avail = len - written;
+ 
+-	ret = __ustream_ssl_write(us, buf, len);
+-	if (ret < 0) {
+-		us->pending_write = 0;
+-		return ret;
+-	}
++		if (us->pending_write > 0 && avail > us->pending_write)
++			avail = us->pending_write;
+ 
+-	us->pending_write = len - ret;
++		ret = __ustream_ssl_write(us, buf + written, avail);
++		if (ret < 0) {
++			us->pending_write = 0;
++			return ret;
++		}
+ 
+-	return ret;
++		us->pending_write = avail - ret;
++		written += ret;
++
++		if (ret == 0)
++			break;
++	}
++
++	return written;
+ }
+ 
+ static void ustream_ssl_set_read_blocked(struct ustream *s)
