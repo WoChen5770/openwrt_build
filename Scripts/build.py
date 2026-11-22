@@ -692,6 +692,47 @@ def apply_kernel_config(tree, profile):
     path.write_text("\n".join(lines) + "\n")
 
 
+def rewrite_mac80211_defaults(content, values):
+    """Patch OpenWrt's generated Wi-Fi defaults while retaining fail-closed checks."""
+    defaults = dict(ssid=values["wifi_ssid"], key=values["wifi_password"],
+                    encryption=values["wifi_encryption"], disabled=str(int(values["wifi_disabled"])))
+    if "set_section(iface, 'wifi-iface'" in content:
+        # Current wifi-scripts build the iface from a ucode object. Replace the
+        # complete fallback expression so wifi.utils board defaults cannot win.
+        for key, value in defaults.items():
+            pattern = (r"(?m)(\b" + key + r":\s*)(?:defaults\?\." + key + r"\s*\|\|\s*)?"
+                       r"(?:\"[^\"\n]*\"|'[^'\n]*')")
+            content, count = re.subn(pattern, lambda match: match[1] + json.dumps(value), content)
+            if count != 1:
+                raise ValueError("mac80211 " + key + " defaults changed upstream")
+    else:
+        for key, value in defaults.items():
+            pattern = r"^(set \$\{si\}\." + key + r"=).*$"
+            quoted = "'" + value.replace("'", "'\\''") + "'"
+            content, count = re.subn(pattern, lambda match: match[1] + quoted, content, flags=re.M)
+            if count != 1:
+                raise ValueError("mac80211 " + key + " defaults changed upstream")
+    width_5g = int(values.get("wifi_5g_width", 80))
+    if width_5g not in (80, 160):
+        raise ValueError("wifi_5g_width must be 80 or 160")
+    width_default = "\t\telse if (width > 80)\n\t\t\twidth = 80;"
+    width_override = (
+        "\t\telse if (band_name == \"5G\" && width > " + str(width_5g) + ")\n"
+        "\t\t\twidth = " + str(width_5g) + ";\n" + width_default
+    )
+    if content.count(width_default) != 1:
+        raise ValueError("mac80211 channel width defaults changed upstream")
+    content = content.replace(width_default, width_override, 1)
+    country = str(values.get("wifi_country", "CN")).upper()
+    if not re.fullmatch(r"[A-Z]{2}", country):
+        raise ValueError("wifi_country must be a two-letter country code")
+    content, count = re.subn(r"\bcountry\s*\|\|\s*'[A-Z0-9]{2}'",
+                             "country || '" + country + "'", content)
+    if count != 1:
+        raise ValueError("mac80211 country fallback changed upstream")
+    return content
+
+
 def apply_defaults(tree, values, vendor=False, wireless_defaults=None):
     generator = tree / "package/base-files/files/bin/config_generate"
     content, count = re.subn(r"192\.168\.\d+\.\d+", values["lan_ip"], generator.read_text())
@@ -737,31 +778,7 @@ def apply_defaults(tree, values, vendor=False, wireless_defaults=None):
         path.write_text(content)
     else:
         path = tree / "package/network/config/wifi-scripts/files/lib/wifi/mac80211.uc"
-        content = path.read_text()
-        for key, value in dict(ssid=values["wifi_ssid"], key=values["wifi_password"],
-                               encryption=values["wifi_encryption"], disabled=str(int(values["wifi_disabled"]))).items():
-            content, count = re.subn(r"^(set \$\{si\}\." + key + r"=).*$", lambda m: m[1] + "'" + value + "'", content, flags=re.M)
-            if count != 1:
-                raise ValueError("mac80211 " + key + " defaults changed upstream")
-        width_5g = int(values.get("wifi_5g_width", 80))
-        if width_5g not in (80, 160):
-            raise ValueError("wifi_5g_width must be 80 or 160")
-        width_default = "\t\telse if (width > 80)\n\t\t\twidth = 80;"
-        width_override = (
-            "\t\telse if (band_name == \"5G\" && width > " + str(width_5g) + ")\n"
-            "\t\t\twidth = " + str(width_5g) + ";\n" + width_default
-        )
-        if content.count(width_default) != 1:
-            raise ValueError("mac80211 channel width defaults changed upstream")
-        content = content.replace(width_default, width_override, 1)
-        country = str(values.get("wifi_country", "CN")).upper()
-        if not re.fullmatch(r"[A-Z]{2}", country):
-            raise ValueError("wifi_country must be a two-letter country code")
-        content, count = re.subn(r"\bcountry\s*\|\|\s*'[A-Z0-9]{2}'",
-                                 "country || '" + country + "'", content)
-        if count != 1:
-            raise ValueError("mac80211 country fallback changed upstream")
-        path.write_text(content)
+        path.write_text(rewrite_mac80211_defaults(path.read_text(), values))
     overlay = tree / "files/etc/uci-defaults"
     overlay.mkdir(parents=True, exist_ok=True)
     for original in (ROOT / "Scripts/uci-defaults").iterdir():
