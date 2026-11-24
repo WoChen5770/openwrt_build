@@ -8,20 +8,55 @@ import json
 import os
 from pathlib import Path
 import re
+import shlex
 import shutil
 import subprocess
 import tarfile
 import tempfile
 import time
 import tomllib
+import urllib.error
 import urllib.request
 
 ROOT = Path(__file__).resolve().parents[1]
 SHA = re.compile(r"^[0-9a-f]{40}$")
+NETWORK_WORKERS = 4
+CI_INPUTS = ("Config", "Scripts", ".github", ".gitattributes")
+FIRMWARE_INPUTS = (
+    ".gitattributes", ".github/workflows/build.yml",
+    "Scripts/build.py", "Scripts/compile.sh", "Scripts/install-dependencies.sh", "Scripts/uci-defaults",
+    "Scripts/Patches/dawn-advisory-btm.patch", "Scripts/Patches/dawn-runtime-fixes.patch",
+    "Scripts/Patches/ustream-ssl-partial-write.patch", "Scripts/Patches/ustream-ssl-partial-write-modern.patch",
+)
+GENERATED_DIRS = {".git", ".state", "out", "logs", "__pycache__", "openwrt", "tests"}
+
+
+def fingerprint(value):
+    return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
+
+
+def update_file_hash(digest, path):
+    with Path(path).open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(block)
+
+
+def file_hash(path):
+    digest = hashlib.sha256()
+    update_file_hash(digest, path)
+    return digest.hexdigest()
 
 
 def read_json(path):
-    return json.loads(Path(path).read_text())
+    return json.loads(Path(path).read_text(encoding="utf-8"))
+
+
+def read_lock(path):
+    lock = read_json(path)
+    if not isinstance(lock, dict) or lock.get("fingerprint") != fingerprint(
+            {key: value for key, value in lock.items() if key != "fingerprint"}):
+        raise ValueError("Build lock contents do not match their fingerprint: " + str(path))
+    return lock
 
 
 def read_toml(path):
@@ -32,16 +67,28 @@ def read_toml(path):
 def write_json(path, value):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(value, indent=2, ensure_ascii=False) + "\n")
-
-
-def run(*args, cwd=None, env=None):
+    temporary = None
     try:
-        return subprocess.check_output(args, cwd=cwd, env=env, text=True, timeout=600).strip()
-    except subprocess.CalledProcessError as error:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent,
+                                         prefix="." + path.name + "-", delete=False) as stream:
+            temporary = Path(stream.name)
+            stream.write(json.dumps(value, indent=2, ensure_ascii=False) + "\n")
+        temporary.replace(path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+
+
+def run(*args, cwd=None, env=None, timeout=600):
+    try:
+        return subprocess.check_output(args, cwd=cwd, env=env, encoding="utf-8", timeout=timeout).strip()
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
         # Captured stdout often contains the useful feeds/make diagnostic.
         if error.output:
-            print(error.output, flush=True)
+            output = error.output
+            if isinstance(output, bytes):
+                output = output.decode("utf-8", errors="replace")
+            print(output, flush=True)
         raise
 
 
@@ -54,10 +101,16 @@ def request(url):
         try:
             with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=45) as response:
                 return response.read()
+        except urllib.error.HTTPError as error:
+            retryable = error.code in (408, 429, 500, 502, 503, 504) or (
+                error.code == 403 and (error.headers or {}).get("X-RateLimit-Remaining") == "0")
+            if not retryable or attempt == 2:
+                raise
+            error.close()
         except OSError:
             if attempt == 2:
                 raise
-            time.sleep(attempt + 1)
+        time.sleep(attempt + 1)
 
 
 def resolve(repo, branch=None, commit=None):
@@ -66,10 +119,20 @@ def resolve(repo, branch=None, commit=None):
             raise ValueError("A pinned commit must be a full 40-character SHA")
         return commit
     ref = "refs/heads/" + branch if branch else "HEAD"
-    lines = run("git", "ls-remote", repo, ref).splitlines()
+    lines = run("git", "ls-remote", repo, ref, env={**os.environ, "GIT_TERMINAL_PROMPT": "0"}, timeout=120).splitlines()
     if len(lines) != 1 or not SHA.fullmatch(lines[0].split()[0]):
         raise ValueError("Cannot resolve source: " + repo + " " + ref)
     return lines[0].split()[0]
+
+
+def resolve_refs(refs, resolved=None):
+    """Resolve each unique Git reference once, with bounded network concurrency."""
+    resolved = dict(resolved or {})
+    pending = list(dict.fromkeys(ref for ref in refs if ref not in resolved))
+    if pending:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=NETWORK_WORKERS) as pool:
+            resolved.update(zip(pending, pool.map(lambda ref: resolve(*ref), pending)))
+    return resolved
 
 
 def parse_feeds(content):
@@ -98,10 +161,6 @@ def parse_feeds(content):
     if len({f["name"] for f in result}) != len(result):
         raise ValueError("Duplicate feed names")
     return result
-
-
-def lock_feed(feed):
-    return {**feed, "commit": resolve(feed["repository"], feed["branch"], feed["commit"])}
 
 
 def merge_config(fragments):
@@ -165,13 +224,18 @@ def profile_platform(profile, values=None):
     return dict(target=target, subtarget=subtarget, device=device, device_key=device_key)
 
 
-def config_for(profile, packages=""):
+def config_for(profile, packages="", private_content=None):
     selections = [serialize_config(PROJECT_CONFIG), (ROOT / profile["config"]).read_text()]
-    private = ROOT / "Config/PRIVATE.txt"
-    if private.is_file():
-        selections.append(private.read_text())
+    if private_content is None:
+        private = ROOT / "Config/PRIVATE.txt"
+        private_content = private.read_text() if private.is_file() else ""
+    selections.append(private_content)
     selections.append(package_overrides(packages))
-    return merge_config(selections)
+    values = merge_config(selections)
+    platform = profile_platform(profile)
+    if profile_platform(profile, values) != platform:
+        raise ValueError(profile["config"] + ": overrides must retain the profile target, subtarget and device")
+    return values
 
 
 def package_overrides(content):
@@ -191,7 +255,10 @@ def validate_config(profile_id, profile, content, selections=None):
     selections = config_for(profile) if selections is None else selections
     platform = profile_platform(profile)
     errors = []
-    for key, expected in selections.items():
+    requirements = {**selections, "TARGET_" + platform["target"]: "y",
+                    "TARGET_" + platform["target"] + "_" + platform["subtarget"]: "y",
+                    platform["device_key"]: "y"}
+    for key, expected in requirements.items():
         actual = values.get(key)
         if expected in ("y", "m"):
             if actual not in (expected, "y"):
@@ -210,11 +277,11 @@ def validate_config(profile_id, profile, content, selections=None):
         raise ValueError(profile_id + " configuration mismatch:\n" + "\n".join(errors))
 
 
-def defaults(profile_id=None):
-    values = read_toml(ROOT / "Config/firmware-defaults.toml")
-    specs = read_toml(ROOT / "Config/profiles.toml")
-    profiles = specs["profiles"]
+def defaults(profile_id=None, specs=None, values=None):
+    values = dict(read_toml(ROOT / "Config/firmware-defaults.toml") if values is None else values)
     if profile_id is not None:
+        specs = read_toml(ROOT / "Config/profiles.toml") if specs is None else specs
+        profiles = specs["profiles"]
         profile = profiles[profile_id]
         source = specs["sources"][profile["source"]]
         values["hostname"] = profile["hostname"]
@@ -223,20 +290,62 @@ def defaults(profile_id=None):
     return values
 
 
-def ci_hash():
+def input_hash(inputs):
+    files = []
+    for relative in inputs:
+        root = ROOT / relative
+        if root.is_file():
+            files.append(root)
+        elif root.is_dir():
+            for current, directories, names in os.walk(root, followlinks=False):
+                directories[:] = [name for name in directories if name not in GENERATED_DIRS]
+                files.extend(Path(current) / name for name in names
+                             if name not in GENERATED_DIRS and name != ".DS_Store" and not name.endswith(".pyc")
+                             and (Path(current) / name).is_file())
     digest = hashlib.sha256()
-    for path in sorted(ROOT.rglob("*")):
+    for path in sorted(files):
         rel = path.relative_to(ROOT)
-        if not path.is_file() or any(part in (".git", ".state", "out", "logs", "__pycache__", "openwrt", "tests") for part in rel.parts):
-            continue
-        digest.update(str(rel).encode() + b"\0" + path.read_bytes() + b"\0")
+        digest.update(str(rel).encode() + b"\0")
+        update_file_hash(digest, path)
+        digest.update(b"\0")
     return digest.hexdigest()
 
 
-def xray_lock(profile_id):
-    asset_name = "Xray-linux-64.zip" if profile_id == "x86-64" else "Xray-linux-arm64-v8a.zip"
+def ci_hash():
+    return input_hash(CI_INPUTS)
+
+
+def firmware_fingerprint(lock, shared_inputs):
+    paths = list(lock["profile"].get("patches", []))
+    if lock["defaults"].get("network_tuning"):
+        paths.append("Scripts/Files/network-tuning.conf")
+    if any(package["mode"] == "honk" for package in lock["packages"].values()):
+        paths.append("Scripts/Honk.sh")
+    if "xray" in lock:
+        paths.append("Scripts/Makefiles/xray-core-prebuilt.mk")
+
+    inputs = {key: value for key, value in lock.items() if key not in ("ci_hash", "requested_packages")}
+    inputs["packages"] = [(name, {key: value for key, value in package.items() if key != "profiles"})
+                          for name, package in lock["packages"].items()]
+    return fingerprint(dict(inputs=inputs, shared=shared_inputs, files=input_hash(paths)))
+
+
+def firmware_marker(digest):
+    return "<!-- firmware-fingerprint:" + digest + " -->"
+
+
+def latest_xray_release():
     releases = json.loads(request("https://api.github.com/repos/XTLS/Xray-core/releases?per_page=100"))
-    release = max((r for r in releases if not r["draft"] and r.get("published_at")), key=lambda r: r["published_at"])
+    release = max((r for r in releases if not r["draft"] and r.get("published_at")),
+                  key=lambda r: (r["published_at"], r["id"]), default=None)
+    if release is None:
+        raise ValueError("No published Xray release found")
+    return release
+
+
+def xray_lock(profile_id, release=None):
+    asset_name = "Xray-linux-64.zip" if profile_id == "x86-64" else "Xray-linux-arm64-v8a.zip"
+    release = latest_xray_release() if release is None else release
     asset = next((a for a in release["assets"] if a["name"] == asset_name and a["state"] == "uploaded"), None)
     if not asset or not re.fullmatch(r"sha256:[0-9a-f]{64}", asset.get("digest") or ""):
         raise ValueError("Latest Xray asset is absent or has no SHA256; refusing an older/unchecked binary")
@@ -248,18 +357,16 @@ def xray_lock(profile_id):
 
 def source_marker(source):
     identity = {key: source[key] for key in ("repository", "branch", "commit")}
-    digest = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
-    return "<!-- build-source:" + digest + " -->"
+    return "<!-- build-source:" + fingerprint(identity) + " -->"
 
 
 def config_marker(values):
-    digest = hashlib.sha256(json.dumps(values, sort_keys=True).encode()).hexdigest()
-    return "<!-- build-config:" + digest + " -->"
+    return "<!-- build-config:" + fingerprint(values) + " -->"
 
 
-def ccache_group(name, profile):
+def ccache_group(name, profile, platform=None):
     # The same compatibility group also identifies the shared toolchain cache.
-    platform = profile_platform(profile)
+    platform = profile_platform(profile) if platform is None else platform
     group = "-".join((profile["source"], platform["target"], platform["subtarget"])).replace("_", "-")
     if not isinstance(group, str) or not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", group):
         raise ValueError("Invalid ccache group: " + name)
@@ -269,7 +376,7 @@ def ccache_group(name, profile):
 TOOLCHAIN_CONFIG_PREFIXES = (
     "TARGET_", "GCC_", "BINUTILS_", "LIBC_", "MUSL_", "UCLIBC_", "GLIBC_",
     "USE_", "TOOLCHAIN_", "ARCH_", "CPU_", "LINUX_",
-    "KERNEL_GIT_", "EXTERNAL_KERNEL_TREE", "EXTERNAL_TOOLCHAIN",
+    "KERNEL_GIT_", "TESTING_KERNEL", "EXTERNAL_KERNEL_TREE", "EXTERNAL_TOOLCHAIN",
     "SOFT_FLOAT", "HAS_FPU",
 )
 TOOLCHAIN_CONFIG_EXCLUDES = (
@@ -277,39 +384,35 @@ TOOLCHAIN_CONFIG_EXCLUDES = (
     "TARGET_MULTI_PROFILE", "TARGET_PER_DEVICE", "TARGET_ROOTFS",
     "TARGET_IMAGES", "TARGET_INITRAMFS", "TARGET_KERNEL",
 )
+# Additional selectors used by tools/Makefile and the compiler recipes.
+TOOLCHAIN_CONFIG_OPTIONS = {
+    "BRCMSMAC_USE_FW_FROM_WL", "BUILD_ALL_HOST_TOOLS", "BUILD_BINDGEN", "BUILDBOT",
+    "CCACHE", "DWARVES", "EFI_IMAGES", "GDB", "NASM", "SDK", "PACKAGE_kmod-b43",
+    "EXTRA_GCC_CONFIG_OPTIONS", "EXTRA_OPTIMIZATION", "EXTRA_TARGET_ARCH", "EXTRA_TARGET_ARCH_NAME",
+    "INSTALL_GCCGO", "INSTALL_GFORTRAN", "MIPS64_ABI", "mips64", "mips64el", "powerpc64",
+    "RUST_SCCACHE", "RUST_TOOLCHAIN_HOST_PATH",
+    "TARGET_INITRAMFS_COMPRESSION_BZIP2", "TARGET_INITRAMFS_COMPRESSION_LZ4", "TARGET_INITRAMFS_COMPRESSION_LZO",
+}
 
 
 def toolchain_config(values):
     """Keep only settings that can affect host tools or the target toolchain."""
     return {key: value for key, value in values.items()
-            if key.startswith(TOOLCHAIN_CONFIG_PREFIXES)
-            and not key.startswith(TOOLCHAIN_CONFIG_EXCLUDES)
-            and "_DEVICE_" not in key}
+            if key in TOOLCHAIN_CONFIG_OPTIONS or (key.startswith(TOOLCHAIN_CONFIG_PREFIXES)
+                                                   and not key.startswith(TOOLCHAIN_CONFIG_EXCLUDES)
+                                                   and "_DEVICE_" not in key)}
 
 
-def assign_cache_writers(matrix, profiles):
+def assign_cache_writers(matrix, locks):
     platforms, writers = {}, {}
-    for name, profile in profiles.items():
-        group = ccache_group(name, profile)
-        selected = profile_platform(profile)
+    for item in matrix:
+        name = item["profile"]
+        profile, selected = locks[name]["profile"], locks[name]["platform"]
+        group = ccache_group(name, profile, selected)
         platform = (profile["source"], selected["target"], selected["subtarget"])
         if platforms.setdefault(group, platform) != platform:
             raise ValueError("A ccache group must use the same source and platform: " + group)
-    active_groups = {ccache_group(item["profile"], profiles[item["profile"]]) for item in matrix}
-    foundations = {}
-    for name, profile in profiles.items():
-        group = ccache_group(name, profile)
-        if group not in active_groups:
-            continue
-        selected = toolchain_config(config_for(profile))
-        if not selected:
-            raise ValueError("No toolchain configuration for cache group: " + group)
-        previous = foundations.setdefault(group, selected)
-        if previous != selected:
-            raise ValueError("A toolchain group must use the same toolchain configuration: " + group)
-    for item in matrix:
-        name = item["profile"]
-        item["ccache_group"] = group = ccache_group(name, profiles[name])
+        item["ccache_group"] = group
         item["toolchain_group"] = group
         if group not in writers or name < writers[group]:
             writers[group] = name
@@ -335,8 +438,15 @@ def compression_profile(profile_id, profile, compression="profile"):
 
 
 def plan(args):
+    code_hash = ci_hash()
     settings = read_toml(ROOT / "Config/build-settings.toml")
+    if type(settings["scheduled_builds"]) is not bool:
+        raise ValueError("scheduled_builds must be a boolean")
+    for key in ("max_parallel", "artifact_retention_days"):
+        if type(settings[key]) is not int or settings[key] < 1:
+            raise ValueError(key + " must be a positive integer")
     matrix = []
+    locks = {}
     output = Path(args.output_dir)
     output.mkdir(parents=True, exist_ok=True)
     specs = read_toml(ROOT / "Config/profiles.toml")
@@ -344,6 +454,8 @@ def plan(args):
         raise ValueError("Unknown profile")
     if args.commit and args.profile == "all":
         raise ValueError("A commit override requires a single profile")
+    if args.commit and not SHA.fullmatch(args.commit):
+        raise ValueError("A pinned commit must be a full 40-character SHA")
     compression = getattr(args, "kernel_compression", "profile")
     if compression != "profile" and args.profile != "jdcloud-re-cs-06":
         raise ValueError("A kernel compression override requires jdcloud-re-cs-06")
@@ -352,50 +464,74 @@ def plan(args):
     if not re.fullmatch(r"[A-Za-z0-9-]+", owner):
         raise ValueError("Invalid repository owner")
     if args.event != "schedule" or settings["scheduled_builds"]:
-        defaults()
+        profiles = {name: compression_profile(name, profile, compression)
+                    for name, profile in specs["profiles"].items() if args.profile in ("all", name)}
+        # A private hook can depend on any project file.
+        shared_inputs = code_hash if (ROOT / "Scripts/PRIVATE.sh").is_file() else input_hash(FIRMWARE_INPUTS)
+        base_defaults = defaults()
+        private = ROOT / "Config/PRIVATE.txt"
+        private_content = private.read_text() if private.is_file() else ""
+        configurations = {name: config_for(profile, overrides, private_content)
+                          for name, profile in profiles.items()}
         known = []
         if args.event == "schedule" or not args.force:
-            pages = json.loads(run("gh", "api", "repos/" + os.environ["GITHUB_REPOSITORY"] + "/releases?per_page=100", "--paginate", "--slurp"))
+            repository = os.environ.get("GITHUB_REPOSITORY")
+            if not repository:
+                raise ValueError("Release comparison requires GITHUB_REPOSITORY; use --force for a local plan")
+            pages = json.loads(run("gh", "api", "repos/" + repository + "/releases?per_page=100", "--paginate", "--slurp"))
             known = [r for page in pages for r in page if not r["draft"]]
+            known.sort(key=lambda r: (r.get("published_at") or "", r["id"]), reverse=True)
         packages = read_toml(ROOT / "Config/packages.toml")
-        sources = {}
-        source_commits = {}
-        package_commits = {}
-        code_hash = ci_hash()
-        for profile_id, profile in specs["profiles"].items():
-            if args.profile not in ("all", profile_id):
-                continue
-            profile = compression_profile(profile_id, profile, compression)
+        selected_packages = {
+            name: {key: package for key, package in packages.items()
+                   if "all" in package["profiles"] or name in package["profiles"]}
+            for name in profiles}
+        source_refs = {profile["source"]: (specs["sources"][profile["source"]]["repository"],
+                                          specs["sources"][profile["source"]]["branch"], args.commit)
+                       for profile in profiles.values()}
+        package_refs = [(package["repository"], package.get("branch"), package.get("commit"))
+                        for selected in selected_packages.values() for package in selected.values()]
+        resolved = resolve_refs([*source_refs.values(), *package_refs])
+
+        def load_source(source_id):
+            source = specs["sources"][source_id]
+            commit = resolved[source_refs[source_id]]
+            slug = source["repository"].removeprefix("https://github.com/").removesuffix(".git")
+            content = request("https://raw.githubusercontent.com/" + slug + "/" + commit + "/feeds.conf.default").decode()
+            return {**source, "commit": commit, "feeds": parse_feeds(content)}
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=NETWORK_WORKERS) as pool:
+            sources = dict(zip(source_refs, pool.map(load_source, source_refs)))
+        feed_refs = [(feed["repository"], feed["branch"], feed["commit"])
+                     for source in sources.values() for feed in source["feeds"]]
+        resolved = resolve_refs(feed_refs, resolved)
+        for source in sources.values():
+            source["feeds"] = [{**feed, "commit": resolved[(feed["repository"], feed["branch"], feed["commit"])]}
+                               for feed in source["feeds"]]
+        xray_release, xray_assets = None, {}
+        for profile_id, profile in profiles.items():
             platform = profile_platform(profile)
             source_id = profile["source"]
-            source = specs["sources"][source_id]
-            if source_id not in source_commits:
-                source_commits[source_id] = resolve(source["repository"], source["branch"], args.commit)
-            if source_id not in sources:
-                commit = source_commits[source_id]
-                slug = source["repository"].removeprefix("https://github.com/").removesuffix(".git")
-                content = request("https://raw.githubusercontent.com/" + slug + "/" + commit + "/feeds.conf.default").decode()
-                with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
-                    feeds = list(pool.map(lock_feed, parse_feeds(content)))
-                sources[source_id] = dict(**source, commit=commit, feeds=feeds)
             selected = {}
-            for name, package in packages.items():
-                if "all" not in package["profiles"] and profile_id not in package["profiles"]:
-                    continue
+            for name, package in selected_packages[profile_id].items():
                 key = (package["repository"], package.get("branch"), package.get("commit"))
-                if key not in package_commits:
-                    package_commits[key] = resolve(*key)
-                selected[name] = {**package, "commit": package_commits[key]}
+                selected[name] = {**package, "commit": resolved[key]}
             lock = dict(profile_id=profile_id, profile=profile, platform=platform,
                         source=sources[source_id], packages=selected,
-                        ci_hash=code_hash, defaults=defaults(profile_id), config=config_for(profile, overrides),
+                        ci_hash=code_hash, defaults=defaults(profile_id, specs, base_defaults),
+                        config=configurations[profile_id],
                         repository_owner=owner)
-            private = ROOT / "Config/PRIVATE.txt"
-            lock["requested_packages"] = merge_config([private.read_text() if private.is_file() else "", overrides])
+            lock["requested_packages"] = merge_config([private_content, overrides])
             if lock["config"].get("PACKAGE_xray-core") == "y":
-                lock["xray"] = xray_lock(profile_id)
-            lock["fingerprint"] = hashlib.sha256(json.dumps(lock, sort_keys=True).encode()).hexdigest()
-            marker = "<!-- build-fingerprint:" + lock["fingerprint"] + " -->"
+                if xray_release is None:
+                    xray_release = latest_xray_release()
+                arch = "x86-64" if profile_id == "x86-64" else "arm64"
+                if arch not in xray_assets:
+                    xray_assets[arch] = xray_lock(profile_id, xray_release)
+                lock["xray"] = xray_assets[arch]
+            lock["firmware_fingerprint"] = firmware_fingerprint(lock, shared_inputs)
+            lock["fingerprint"] = fingerprint(lock)
+            marker = firmware_marker(lock["firmware_fingerprint"])
             if args.event == "schedule":
                 # The fingerprint includes the package commits resolved from upstream branches.
                 latest = next((r for r in known if r["tag_name"].startswith(profile_id + "-")), None)
@@ -406,14 +542,18 @@ def plan(args):
             if unchanged:
                 print("Unchanged: " + profile_id)
                 continue
-            write_json(output / (profile_id + ".json"), lock)
+            locks[profile_id] = lock
             variant = profile.get("kernel_compression", "default")
             group = "firmware-" + profile_id + ("-" + variant if variant != "default" else "")
             matrix.append(dict(profile=profile_id, source_commit=lock["source"]["commit"], fingerprint=lock["fingerprint"],
                                kernel_compression=variant, concurrency_group=group))
-    assign_cache_writers(matrix, specs["profiles"])
+    assign_cache_writers(matrix, locks)
+    if ci_hash() != code_hash:
+        raise ValueError("CI files changed while planning; retry with a stable checkout")
     result = dict(matrix=dict(include=matrix), has_builds=bool(matrix), max_parallel=settings["max_parallel"],
                   retention_days=settings["artifact_retention_days"])
+    for profile_id, lock in locks.items():
+        write_json(output / (profile_id + ".json"), lock)
     write_json(output / "matrix.json", result)
     print(json.dumps(result, ensure_ascii=False))
     if args.github_output:
@@ -423,17 +563,24 @@ def plan(args):
 
 
 def checkout(repo, commit, dest):
-    dest.mkdir(parents=True)
-    run("git", "init", "-q", str(dest))
-    run("git", "-C", str(dest), "remote", "add", "origin", repo)
-    run("git", "-C", str(dest), "fetch", "--depth=1", "origin", commit)
-    run("git", "-C", str(dest), "checkout", "-q", "--detach", "FETCH_HEAD")
-    if run("git", "-C", str(dest), "rev-parse", "HEAD") != commit:
-        raise ValueError("Source checkout differs from build plan")
+    if os.path.lexists(dest):
+        raise FileExistsError("Checkout destination already exists: " + str(dest))
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
+    with tempfile.TemporaryDirectory(prefix="." + dest.name + "-", dir=dest.parent) as temporary:
+        tree = Path(temporary) / "source"
+        git = ("git", "-C", str(tree))
+        run("git", "init", "-q", str(tree))
+        run(*git, "remote", "add", "origin", repo)
+        run(*git, "fetch", "--depth=1", "--no-tags", "origin", commit, env=env)
+        run(*git, "checkout", "-q", "--detach", "FETCH_HEAD")
+        if run(*git, "rev-parse", "HEAD") != commit:
+            raise ValueError("Source checkout differs from build plan")
+        tree.rename(dest)
 
 
 def checkout_locked(args):
-    lock = read_json(args.lock)
+    lock = read_lock(args.lock)
     if lock["source"]["commit"] != args.commit:
         raise ValueError("Source commit does not match the build plan")
     if lock["fingerprint"] != args.fingerprint:
@@ -559,11 +706,7 @@ def use_packaged_adguardhome(tree):
     path.write_text(content)
 
 
-def apply_source_patches(tree, profile, values):
-    patches = list(profile.get("patches", []))
-    dawn_patch = "Scripts/Patches/dawn-runtime-fixes.patch"
-    if values.get("PACKAGE_dawn") == "y" and dawn_patch not in patches:
-        patches.insert(0, dawn_patch)
+def apply_source_patches(tree, patches):
     for name in patches:
         relative = Path(name)
         if relative.is_absolute() or ".." in relative.parts or relative.parts[:2] != ("Scripts", "Patches"):
@@ -575,12 +718,15 @@ def apply_source_patches(tree, profile, values):
         run("patch", "--batch", "--forward", "--fuzz=0", "-p1", "-i", str(path), cwd=tree)
 
 
-def apply_dawn_btm_patch(tree, values):
+def apply_dawn_patches(tree, values, profile_patches):
     if values.get("PACKAGE_dawn") not in ("y", "m"):
         return
     dawn_package = tree / "feeds/packages/net/dawn"
     if not (dawn_package / "Makefile").is_file():
         raise ValueError("DAWN recipe missing from the packages feed")
+    runtime_patch = "Scripts/Patches/dawn-runtime-fixes.patch"
+    if runtime_patch not in profile_patches:
+        apply_source_patches(tree, [runtime_patch])
     package_patches = dawn_package / "patches"
     package_patches.mkdir(exist_ok=True)
     print("Staging DAWN package patch: 950-advisory-btm.patch", flush=True)
@@ -706,44 +852,101 @@ def apply_kernel_config(tree, profile):
     path.write_text("\n".join(lines) + "\n")
 
 
+def shell_quote(value):
+    if not isinstance(value, str) or any(character in value for character in "\r\n\0"):
+        raise ValueError("Firmware defaults must be single-line strings")
+    return shlex.quote(value)
+
+
+def uci_batch_quote(value):
+    # The shell expands here-documents even inside UCI's quote characters.
+    # Escape for that outer layer after quoting the value for UCI's parser.
+    return shell_quote(value).replace("\\", "\\\\").replace("$", "\\$").replace("`", "\\`")
+
+
+UCODE_TOKEN = re.compile(
+    r"""(?P<comment>//[^\n]*|/\*.*?\*/)|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'"""
+    r"""|\x60(?:\\.|[^\x60\\])*\x60|[\w$]+|\S""",
+    re.S,
+)
+
+
+def ucode_properties(content, start):
+    """Yield top-level property names and value spans, leaving comments at the edges."""
+    tokens, nesting = [], []
+    pairs = {"(": ")", "[": "]", "{": "}"}
+    for token in UCODE_TOKEN.finditer(content, start):
+        if token.lastgroup == "comment":
+            continue
+        value = token[0]
+        if not nesting and value in (",", "}"):
+            if len(tokens) >= 3 and tokens[1][0] == ":":
+                yield tokens[0][0].strip("'\""), tokens[2].start(), tokens[-1].end()
+            if value == "}":
+                return
+            tokens.clear()
+            continue
+        if value in pairs:
+            nesting.append(pairs[value])
+        elif value in pairs.values() and (not nesting or nesting.pop() != value):
+            break
+        tokens.append(token)
+    raise ValueError("mac80211 wifi-iface section changed upstream")
+
+
 def rewrite_mac80211_defaults(content, values):
     """Patch OpenWrt's generated Wi-Fi defaults while retaining fail-closed checks."""
     defaults = dict(ssid=values["wifi_ssid"], key=values["wifi_password"],
                     encryption=values["wifi_encryption"], disabled=str(int(values["wifi_disabled"])))
-    if "set_section(iface, 'wifi-iface'" in content:
-        # Current wifi-scripts build the iface from a ucode object. Replace the
-        # complete fallback expression so wifi.utils board defaults cannot win.
-        for key, value in defaults.items():
-            pattern = (r"(?m)(\b" + key + r":\s*)(?:defaults\?\." + key + r"\s*\|\|\s*)?"
-                       r"(?:\"[^\"\n]*\"|'[^'\n]*')")
-            content, count = re.subn(pattern, lambda match: match[1] + json.dumps(value), content)
-            if count != 1:
+    blocks = list(re.finditer(r"""set_section\(\s*iface\s*,\s*(['"])wifi-iface\1\s*,\s*\{""", content))
+    if blocks:
+        if len(blocks) != 1:
+            raise ValueError("mac80211 wifi-iface section changed upstream")
+        fields = {}
+        for key, start, end in ucode_properties(content, blocks[0].end()):
+            if key not in defaults:
+                continue
+            if key in fields:
                 raise ValueError("mac80211 " + key + " defaults changed upstream")
+            fields[key] = (start, end)
+        if missing := defaults.keys() - fields.keys():
+            raise ValueError("mac80211 " + ", ".join(sorted(missing)) + " defaults changed upstream")
+        for key, (start, end) in reversed(fields.items()):
+            content = content[:start] + json.dumps(defaults[key]) + content[end:]
     else:
         for key, value in defaults.items():
             pattern = r"^(set \$\{si\}\." + key + r"=).*$"
-            quoted = "'" + value.replace("'", "'\\''") + "'"
+            quoted = uci_batch_quote(value)
             content, count = re.subn(pattern, lambda match: match[1] + quoted, content, flags=re.M)
             if count != 1:
                 raise ValueError("mac80211 " + key + " defaults changed upstream")
     width_5g = int(values.get("wifi_5g_width", 80))
     if width_5g not in (80, 160):
         raise ValueError("wifi_5g_width must be 80 or 160")
-    width_default = "\t\telse if (width > 80)\n\t\t\twidth = 80;"
-    width_override = (
-        "\t\telse if (band_name == \"5G\" && width > " + str(width_5g) + ")\n"
-        "\t\t\twidth = " + str(width_5g) + ";\n" + width_default
-    )
-    if content.count(width_default) != 1:
+    # Upstream indents with tabs; tolerate any whitespace so a re-indent cannot
+    # silently disable the 5G width cap.
+    width_pattern = re.compile(r"(?m)^([ \t]*)else if \(width > 80\)\n[ \t]*width = 80;")
+    width_match = width_pattern.search(content)
+    if not width_match or len(width_pattern.findall(content)) != 1:
         raise ValueError("mac80211 channel width defaults changed upstream")
-    content = content.replace(width_default, width_override, 1)
+    indent = width_match[1]
+    body_indent = re.match(r"[ \t]*", width_match[0].split("\n", 1)[1])[0]
+    width_override = (
+        indent + 'else if (band_name == "5G" && width > ' + str(width_5g) + ")\n"
+        + body_indent + "width = " + str(width_5g) + ";\n"
+        + width_match[0].replace("width > 80", 'band_name != "5G" && width > 80', 1)
+    )
+    content = content[:width_match.start()] + width_override + content[width_match.end():]
     country = str(values.get("wifi_country", "CN")).upper()
     if not re.fullmatch(r"[A-Z]{2}", country):
         raise ValueError("wifi_country must be a two-letter country code")
-    content, count = re.subn(r"\bcountry\s*\|\|\s*'[A-Z0-9]{2}'",
-                             "country || '" + country + "'", content)
-    if count != 1:
+    # Accept both `country || 'US'` and the newer `uc(configured_country || 'US')`.
+    # The fallback variable is `country` in old wifi-scripts and
+    # `configured_country` in current ones; accept any identifier ending in it.
+    country_pattern = re.compile(r"\b(\w*country)\s*\|\|\s*'[A-Z0-9]{2}'")
+    if len(country_pattern.findall(content)) != 1:
         raise ValueError("mac80211 country fallback changed upstream")
+    content = country_pattern.sub(lambda match: match[1] + " || '" + country + "'", content)
     return content
 
 
@@ -752,7 +955,7 @@ def apply_defaults(tree, values, vendor=False, wireless_defaults=None):
     content, count = re.subn(r"192\.168\.\d+\.\d+", values["lan_ip"], generator.read_text())
     if not count:
         raise ValueError("LAN default generator changed upstream")
-    content, count = re.subn(r"hostname='[^']*'", "hostname='" + values["hostname"] + "'", content)
+    content, count = re.subn(r"hostname='[^']*'", lambda _: "hostname=" + shell_quote(values["hostname"]), content)
     if not count:
         raise ValueError("Hostname default generator changed upstream")
     # Mark only newly generated networks. A late defaults hook must run after
@@ -765,16 +968,16 @@ def apply_defaults(tree, values, vendor=False, wireless_defaults=None):
     if vendor and wireless_defaults == "mtwifi-shell":
         path = tree / "package/mtk/applications/mtwifi-cfg/files/mtwifi.sh"
         content = path.read_text()
-        for key, value in (("ssid", "'" + values["wifi_ssid"] + "'"),
-                           ("encryption", "'" + values["wifi_encryption"] + "'")):
+        for key, value in (("ssid", uci_batch_quote(values["wifi_ssid"])),
+                           ("encryption", uci_batch_quote(values["wifi_encryption"]))):
             pattern = r"(?m)^([ \t]*set wireless\.default_\$\{dev\}\." + key + r"=).*$"
             replacement = lambda m: m[1] + value
             if key == "encryption":
                 def replacement(match):
                     indent = re.match(r"[ \t]*", match[1])[0]
-                    return (match[1] + value + "\n" + indent + "set wireless.default_${dev}.key='" +
-                            values["wifi_password"] + "'\n" + indent + "set wireless.default_${dev}.disabled='" +
-                            str(int(values["wifi_disabled"])) + "'")
+                    return (match[1] + value + "\n" + indent + "set wireless.default_${dev}.key=" +
+                            uci_batch_quote(values["wifi_password"]) + "\n" + indent +
+                            "set wireless.default_${dev}.disabled=" + str(int(values["wifi_disabled"])))
             content, count = re.subn(pattern, replacement, content)
             if count != 1:
                 raise ValueError("Vendor shell Wi-Fi " + key + " defaults changed upstream")
@@ -803,10 +1006,10 @@ def apply_defaults(tree, values, vendor=False, wireless_defaults=None):
         sysctl.mkdir(parents=True, exist_ok=True)
         shutil.copy2(ROOT / "Scripts/Files/network-tuning.conf", sysctl / "11-project-network.conf")
     # Only system settings; never overwrite restored wireless/network configuration.
-    script = "#!/bin/sh\nuci set system.@system[0].hostname='" + values["hostname"] + "'\n"
-    script += "uci set system.@system[0].timezone='" + values["timezone"] + "'\n"
-    script += "uci set system.@system[0].zonename='" + values["zonename"] + "'\nuci commit system\n"
-    script += "uci set luci.main.mediaurlbase='/luci-static/" + values["theme"] + "'\nuci commit luci\nexit 0\n"
+    script = "#!/bin/sh\nuci set system.@system[0].hostname=" + shell_quote(values["hostname"]) + "\n"
+    script += "uci set system.@system[0].timezone=" + shell_quote(values["timezone"]) + "\n"
+    script += "uci set system.@system[0].zonename=" + shell_quote(values["zonename"]) + "\nuci commit system\n"
+    script += "uci set luci.main.mediaurlbase=" + shell_quote("/luci-static/" + values["theme"]) + "\nuci commit luci\nexit 0\n"
     (overlay / "95-project-defaults").write_text(script)
     for path in overlay.iterdir():
         path.chmod(0o755)
@@ -856,7 +1059,8 @@ def build_identity(lock):
     return dict(repository_owner=lock["repository_owner"],
                 built_at=started.isoformat(timespec="seconds").replace("+00:00", "Z"),
                 build_date=started.astimezone(timezone(timedelta(hours=8))).strftime("%y.%m.%d-%H.%M.%S"),
-                profile_id=lock["profile_id"], ci_commit=os.environ.get("GITHUB_SHA", "local"),
+                profile_id=lock["profile_id"], fingerprint=lock["fingerprint"],
+                source_commit=lock["source"]["commit"], ci_commit=os.environ.get("GITHUB_SHA", "local"),
                 run_id=os.environ.get("GITHUB_RUN_ID", "local"), run_attempt=os.environ.get("GITHUB_RUN_ATTEMPT", "1"))
 
 
@@ -900,31 +1104,45 @@ def cache_source_inputs(tree, paths):
         if not path.is_file():
             digest.update(b"missing\0")
             continue
-        content = path.read_bytes()
-        digest.update(str(path.stat().st_mode & 0o111).encode() + b"\0" + content + b"\0")
+        digest.update(str(path.stat().st_mode & 0o111).encode() + b"\0")
+        update_file_hash(digest, path)
+        digest.update(b"\0")
     if not any(files):
         raise ValueError("No tracked source files for cache fingerprint")
     return digest.hexdigest()
 
 
-def kernel_patchver(tree, target, subtarget):
+def kernel_patchver(tree, target, subtarget, values=None):
+    """Resolve literal versions; use the conservative cache path for Make logic."""
+    selected = "KERNEL_TESTING_PATCHVER" if values and values.get("TESTING_KERNEL") == "y" else "KERNEL_PATCHVER"
+    version = None
     for relative in (target + "/Makefile", target + "/" + subtarget + "/target.mk"):
         path = tree / relative
         if not path.is_file():
             continue
+        conditional_depth = 0
         for line in path.read_text().splitlines():
-            match = re.match(r"\s*KERNEL_PATCHVER\s*(?:\?|:)?=\s*([0-9]+(?:\.[0-9]+)+)\s*$",
-                             line.split("#", 1)[0])
-            if match:
-                return match.group(1)
-    return None
+            code = line.split("#", 1)[0].strip()
+            if re.match(r"(?:ifeq|ifneq|ifdef|ifndef)\b", code):
+                conditional_depth += 1
+            elif re.match(r"endif\b", code):
+                conditional_depth = max(0, conditional_depth - 1)
+            elif re.match(r"(?:override\s+)?define\s+" + selected + r"\b", code):
+                return None
+            match = re.match(r"(?:(?:override|export)\s+)*" + selected + r"\s*([?:+!])?=\s*(.*?)\s*$", code)
+            if not match or (match[1] == "?" and version is not None):
+                continue
+            if conditional_depth or match[1] in ("+", "!") or not re.fullmatch(r"[0-9]+(?:\.[0-9]+)+", match[2]):
+                return None
+            version = match[2]
+    return version
 
 
-def toolchain_source_paths(tree, target, subtarget):
+def toolchain_source_paths(tree, target, subtarget, values=None):
     paths = ["tools", "toolchain", "include", "config", "scripts", "Makefile", "rules.mk",
              "target/linux/Makefile", target + "/Makefile", target + "/" + subtarget + "/target.mk"]
     generic = "target/linux/generic"
-    patchver = kernel_patchver(tree, target, subtarget)
+    patchver = kernel_patchver(tree, target, subtarget, values)
     if not patchver:
         return paths + [generic]
     paths += [generic + "/Makefile", generic + "/kernel-" + patchver,
@@ -945,39 +1163,41 @@ def cache_keys(lock, tree, host):
         raise ValueError("Cache planning requires the expanded build configuration")
     profile = lock["profile"]
     platform = lock["platform"]
-    group = ccache_group(lock["profile_id"], profile)
+    group = ccache_group(lock["profile_id"], profile, platform)
     target = "target/linux/" + platform["target"]
     platform_files = (target + "/Makefile", target + "/" + platform["subtarget"] + "/target.mk")
     missing = [path for path in platform_files if not (tree / path).is_file()]
     if missing:
         raise ValueError("Toolchain cache input is missing: " + ", ".join(missing))
-    selected = toolchain_config(lock["config"])
+    selected = toolchain_config(values)
     if not selected:
         raise ValueError("Toolchain cache planning found no target/toolchain configuration")
     # Toolchain kernel headers use their own patches; device DTS, image and kernel
     # configuration changes must not invalidate the shared toolchain cache.
-    paths = toolchain_source_paths(tree, target, platform["subtarget"])
+    paths = toolchain_source_paths(tree, target, platform["subtarget"], values)
+    if "target/linux/generic" in paths:
+        # Unknown Make expressions can select a kernel through any option.
+        # Hash all expanded selections as well as all generic kernel sources.
+        selected = values
     source_hash = cache_source_inputs(tree, paths)
     foundation = dict(cache_group=group,
                       source={k: lock["source"][k] for k in ("repository", "branch")},
                       platform=(platform["target"], platform["subtarget"]),
                       config=selected, source_hash=source_hash,
                       host=host, directory=str(tree.resolve()))
-    def digest(value):
-        return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()[:24]
-    toolchain_key = "toolchain-v2-Linux-ubuntu24-" + group + "-" + digest(foundation)
+    toolchain_key = "toolchain-v2-Linux-ubuntu24-" + group + "-" + fingerprint(foundation)[:24]
     # Package host tools retain their feed, overlay, configuration and recipe guards.
-    scripts = {str(path.relative_to(ROOT)): hashlib.sha256(path.read_bytes()).hexdigest()
+    scripts = {str(path.relative_to(ROOT)): file_hash(path)
                for path in sorted((ROOT / "Scripts").rglob("*"))
                if path.is_file() and "__pycache__" not in path.parts and path.suffix != ".pyc"}
     packages = dict(toolchain_key=toolchain_key, feeds=lock["source"]["feeds"], packages=lock["packages"],
                     config=values, recipes=run("git", "rev-parse", "HEAD:package", cwd=tree), scripts=scripts)
-    hostpkg_key = "hostpkg-v2-Linux-ubuntu24-" + lock["profile_id"] + "-" + digest(packages)
+    hostpkg_key = "hostpkg-v2-Linux-ubuntu24-" + lock["profile_id"] + "-" + fingerprint(packages)[:24]
     return dict(toolchain_key=toolchain_key, hostpkg_key=hostpkg_key)
 
 
 def cache_plan(args):
-    lock, tree = read_json(args.lock), Path(args.source)
+    lock, tree = read_lock(args.lock), Path(args.source)
     # Arbitrary private hooks can alter build inputs outside the tracked recipe set.
     enabled = not (ROOT / "Scripts/PRIVATE.sh").is_file()
     keys = dict(toolchain_key="", hostpkg_key="")
@@ -986,7 +1206,7 @@ def cache_plan(args):
         host = dict(image=os.environ.get("ImageVersion", "unknown"), compiler=run("gcc", "--version"),
                     linker=run("ld", "--version"),
                     packages="\n".join(sorted(installed.splitlines())),
-                    dependencies=hashlib.sha256((ROOT / "Scripts/install-dependencies.sh").read_bytes()).hexdigest())
+                    dependencies=file_hash(ROOT / "Scripts/install-dependencies.sh"))
         keys = cache_keys(lock, tree, host)
     result = dict(**keys, enabled=str(enabled).lower())
     with open(args.github_output, "a") as output:
@@ -1019,7 +1239,7 @@ def remove_path(path):
 def clear_target_outputs(tree):
     # `make clean` also deletes staging_dir, including the restored host,
     # hostpkg and toolchain caches. Remove only outputs that are unsafe to reuse.
-    for relative in ("build_dir", "bin", "staging_dir/packages"):
+    for relative in ("build_dir", "bin", "staging_dir/packages", ".build-complete.json"):
         remove_path(tree / relative)
     for path in (tree / "staging_dir").glob("target-*"):
         remove_path(path)
@@ -1032,13 +1252,17 @@ def cache_refresh(args):
 
 
 def prepare(args):
-    lock = read_json(args.lock)
+    lock = read_lock(args.lock)
     if lock["ci_hash"] != ci_hash():
         raise ValueError("CI files changed since planning")
     tree = Path(args.source).resolve()
     if run("git", "-C", str(tree), "rev-parse", "HEAD") != lock["source"]["commit"]:
         raise ValueError("Upstream SHA does not match plan")
-    (tree / "feeds.conf").write_text("".join("src-git-full " + f["name"] + " " + f["repository"] + "^" + f["commit"] + "\n" for f in lock["source"]["feeds"]))
+    (tree / ".build-complete.json").unlink(missing_ok=True)
+    (tree / "feeds.conf").write_text("".join(
+        f"{feed['kind']} {feed['name']} {feed['repository']}^{feed['commit']}\n"
+        for feed in lock["source"]["feeds"]
+    ))
     run("./scripts/feeds", "update", "-a", cwd=tree)
     for feed in lock["source"]["feeds"]:
         actual = run("git", "-C", str(tree / "feeds" / feed["name"]), "rev-parse", "HEAD")
@@ -1062,7 +1286,8 @@ def prepare(args):
     remove_qmodem(tree)
     vendor = lock["source"].get("vendor_wireless", False)
     apply_defaults(tree, lock["defaults"], vendor, lock["source"].get("wireless_defaults"))
-    apply_source_patches(tree, lock["profile"], lock["config"])
+    profile_patches = lock["profile"].get("patches", [])
+    apply_source_patches(tree, profile_patches)
     apply_ustream_ssl_write_patch(tree)
     apply_kernel_config(tree, lock["profile"])
     customize_luci(tree, lock["defaults"], identity)
@@ -1074,12 +1299,7 @@ def prepare(args):
     run("make", "defconfig", cwd=tree)
     actual = (tree / ".config").read_text()
     validate_config(lock["profile_id"], lock["profile"], actual, values)
-    actual_values = merge_config([actual])
-    missing = [key for key, value in lock["requested_packages"].items()
-               if value in ("y", "m") and actual_values.get(key) not in (value, "y")]
-    if missing:
-        raise ValueError("Private/temporary options not selected: " + ", ".join(missing))
-    apply_dawn_btm_patch(tree, actual_values)
+    apply_dawn_patches(tree, merge_config([actual]), profile_patches)
     print("Configuration verified: " + lock["profile_id"])
 
 
@@ -1242,15 +1462,19 @@ def release_notes(lock, identity=None, config_name="Config-*.txt", manifest=None
     notes += "校验：`sha256sums` · 完整配置：`" + config_name + "` · 包清单：`*.manifest` · 构建记录：`build-info.json`。\n\n"
     notes += "其余构建诊断保存在 Actions 的 logs 附件中。\n\n</details>\n\n"
     notes += "<!-- build-fingerprint:" + lock["fingerprint"] + " -->\n"
+    if "firmware_fingerprint" in lock:
+        notes += firmware_marker(lock["firmware_fingerprint"]) + "\n"
     notes += "<!-- build-ci:" + lock["ci_hash"] + " -->\n"
     notes += config_marker(lock["config"]) + "\n"
     return notes + source_marker(source) + "\n"
 
 
 def collect(args):
-    lock = read_json(args.lock)
+    lock = read_lock(args.lock)
     tree = Path(args.source)
     output = Path(args.output_dir)
+    if output.is_symlink() or (output.exists() and (not output.is_dir() or any(output.iterdir()))):
+        raise ValueError("Collection output must be an empty directory")
     profile = lock["profile"]
     platform = lock.get("platform") or profile_platform(profile)
     target = tree / "bin/targets" / platform["target"] / platform["subtarget"]
@@ -1258,6 +1482,12 @@ def collect(args):
     identity = read_json(tree / ".build-identity.json")
     if identity["profile_id"] != lock["profile_id"]:
         raise ValueError("Build identity profile mismatch")
+    if (identity.get("fingerprint") != lock["fingerprint"]
+            or identity.get("source_commit") != lock["source"]["commit"]):
+        raise ValueError("Build identity does not match the locked source and configuration")
+    completion = tree / ".build-complete.json"
+    if not completion.is_file() or read_json(completion) != identity:
+        raise ValueError("No successful compilation for this build. Run Scripts/compile.sh after prepare.")
     manifest = validate_image_packages(target, profile, lock["profile_id"], platform)
     if lock["profile_id"] == "jdcloud-re-cs-06":
         sysupgrades = list(target.glob("*" + platform["device"] + "*sysupgrade*.bin"))
@@ -1270,9 +1500,17 @@ def collect(args):
         if len(sysupgrades) != 1:
             raise ValueError("Expected one S20P MTK sysupgrade image")
         validate_mtk_sysupgrade(sysupgrades[0])
-    output.mkdir(parents=True, exist_ok=True)
-    if any(output.iterdir()):
-        raise ValueError("Collection output must be empty")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="." + output.name + "-", dir=output.parent) as temporary:
+        staged = Path(temporary)
+        collect_assets(lock, tree, staged, target, manifest, identity, fit_images)
+        staged.replace(output)
+
+
+def collect_assets(lock, tree, output, target, manifest, identity, fit_images):
+    """Assemble and checksum a complete release in its temporary output directory."""
+    profile = lock["profile"]
+    platform = lock.get("platform") or profile_platform(profile)
     variant = "-" + profile.get("kernel_compression", "lzma") if lock["profile_id"] == "jdcloud-re-cs-06" else ""
     stamp = lock["profile_id"] + variant + "-" + identity["build_date"] + "-r" + identity["run_id"] + "-" + identity["run_attempt"]
     diagnostics = ROOT / "logs/metadata"
@@ -1287,6 +1525,8 @@ def collect(args):
         if fit_images is not None:
             is_image = path in fit_images
         if is_image:
+            if path.is_symlink() or path.stat().st_size == 0:
+                raise ValueError("Firmware image must be a nonempty regular file: " + path.name)
             name = dated_filename(path.name, stamp)
             shutil.copy2(path, output / name)
             images.append(name)
@@ -1309,11 +1549,7 @@ def collect(args):
     for name in sorted(assets):
         path = output / name
         if name != "sha256sums":
-            digest = hashlib.sha256()
-            with path.open("rb") as stream:
-                for block in iter(lambda: stream.read(1024 * 1024), b""):
-                    digest.update(block)
-            checksums.append(digest.hexdigest() + "  " + path.name + "\n")
+            checksums.append(file_hash(path) + "  " + path.name + "\n")
     (output / "sha256sums").write_text("".join(checksums))
 
 

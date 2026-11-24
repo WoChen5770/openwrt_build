@@ -60,7 +60,7 @@
 | :--- | :--- |
 | [Build firmware](https://github.com/WoChen5770/openwrt_build/actions/workflows/build.yml) | 锁定源码与配置、并行编译、筛选成功产物、校验并发布 Release |
 | [Clean old releases, caches and workflow runs](https://github.com/WoChen5770/openwrt_build/actions/workflows/cleanup.yml) | 清理本项目可识别的旧 Release / 标签、缓存和 Actions 运行记录；支持手动预览 |
-| [Repository checks](https://github.com/WoChen5770/openwrt_build/actions/workflows/check.yml) | 检查配置、校验脚本和 Actions 语法，不编译固件 |
+| [Repository checks](https://github.com/WoChen5770/openwrt_build/actions/workflows/check.yml) | 校验 Python、Shell 和 Actions 语法 |
 
 
 ## 目录结构

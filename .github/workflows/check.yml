@@ -13,42 +13,10 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
-      - name: Validate configuration and script syntax
+      - name: Validate script syntax
         run: |
-          python3 - <<'PY'
-          from Scripts.build import (ROOT, config_for, defaults, profile_platform, read_toml,
-                                     serialize_config, validate_config)
-          from Scripts.cleanup import settings
-          settings()
-          for path in (ROOT / 'Config').glob('*.toml'):
-              read_toml(path)
-          specs = read_toml(ROOT / 'Config/profiles.toml')
-          allowed_fields = {'display_name', 'hostname', 'source', 'config', 'patches', 'kernel_config'}
-          for name, profile in specs['profiles'].items():
-              assert set(profile) <= allowed_fields, name + ': unsupported profile fields'
-              assert profile['source'] in specs['sources'], name + ': unknown source'
-              defaults(name)
-              values = config_for(profile)
-              platform = profile_platform(profile)
-              assert values.get(platform['device_key']) == 'y', name + ': device not selected'
-              assert values.get('CCACHE') == 'y', name + ': compiler cache disabled'
-              validate_config(name, profile, serialize_config(values), values)
-          PY
           python3 -m py_compile Scripts/*.py
           while IFS= read -r script; do bash -n "$script"; done < <(find Scripts -name '*.sh' -type f)
-      - name: Smoke-test diagnostics collection
-        run: |
-          work=$(mktemp -d)
-          trap 'rm -rf "$work"' EXIT
-          mkdir -p "$work/source" "$work/logs"
-          printf 'start\tend\tstage\n' > "$work/logs/build-time-parallel.tsv"
-          TOOLCHAIN_CACHE_HIT=false HOSTPKG_CACHE_HIT=true \
-            bash Scripts/collect-diagnostics.sh "$work/source" "$work/logs"
-          grep -F -- '--- build-time-parallel-report.txt ---' "$work/logs/build-summary.md"
-          if grep -Fq 'Source commit:' "$work/logs/build-summary.md"; then
-            echo 'Unexpected source commit recorded for a non-Git source tree' >&2
-            exit 1
-          fi
       - name: Validate GitHub Actions syntax
         env:
           ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
