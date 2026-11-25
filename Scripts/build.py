@@ -750,8 +750,8 @@ def c_function_body(source, name):
 
 def ustream_ssl_write_is_fixed(source):
     body = c_function_body(source, "ustream_ssl_write")
-    return bool(re.search(r"\bwhile\s*\(\s*written\s*<\s*len\s*\)", body) and
-                re.search(r"\breturn\s+written\s*;", body))
+    loop = re.search(r"\bwhile\s*\(\s*(written|done)\s*<\s*len\s*\)", body)
+    return bool(loop and re.search(r"\breturn\s+" + loop.group(1) + r"\s*;", body))
 
 
 def ustream_ssl_write_patch(source):
@@ -801,6 +801,59 @@ def fetch_ustream_ssl_source(tree, makefile_text):
     return source, version
 
 
+def ustream_ssl_package_patches(patches, target):
+    """Return existing package patches that modify ustream-ssl.c."""
+    selected = []
+    for patch in sorted(patches.glob("*.patch")):
+        if patch.name == target.name or not patch.is_file():
+            continue
+        content = patch.read_text(encoding="utf-8", errors="replace")
+        if re.search(r"(?m)^(?:diff --git a/ustream-ssl\.c b/ustream-ssl\.c|"
+                     r"(?:---|\+\+\+) [ab]/ustream-ssl\.c(?:\s.*)?)$", content):
+            selected.append(patch)
+    return selected
+
+
+def stage_ustream_ssl_write_patch(source, version, patches, target):
+    """Replay package patches, then select and validate the project write fix."""
+    with tempfile.TemporaryDirectory(prefix="ustream-ssl-patch-") as directory:
+        source_dir = Path(directory)
+        source_path = source_dir / "ustream-ssl.c"
+        source_path.write_text(source, encoding="utf-8")
+        # Keep patch paths relative to this temporary tree even if the system
+        # temporary directory happens to be nested inside another Git repo.
+        run("git", "init", "--quiet", cwd=source_dir)
+        # OpenWrt applies package patches before our lexicographically last 900 patch.
+        for package_patch in ustream_ssl_package_patches(patches, target):
+            print("Applying existing ustream-ssl package patch: " + package_patch.name, flush=True)
+            try:
+                run("git", "apply", "--check", "--whitespace=nowarn", "--include=ustream-ssl.c",
+                    "-p1", str(package_patch), cwd=source_dir)
+                run("git", "apply", "--whitespace=nowarn", "--include=ustream-ssl.c",
+                    "-p1", str(package_patch), cwd=source_dir)
+            except subprocess.CalledProcessError:
+                raise ValueError("ustream-ssl " + version + " no longer accepts existing package patch " +
+                                 package_patch.name) from None
+        patch = ustream_ssl_write_patch(source_path.read_text(encoding="utf-8"))
+        if patch is None:
+            target.unlink(missing_ok=True)
+            print("Skipping ustream-ssl write fix: upstream " + version +
+                  " and its package patches already flush partial writes", flush=True)
+            return
+        try:
+            run("git", "apply", "--check", "--whitespace=nowarn", "-p1", str(patch), cwd=source_dir)
+            run("git", "apply", "--whitespace=nowarn", "-p1", str(patch), cwd=source_dir)
+        except subprocess.CalledProcessError:
+            raise ValueError("ustream-ssl " + version +
+                             " changed and " + patch.name + " no longer applies; update that patch") from None
+        if not ustream_ssl_write_is_fixed(source_path.read_text(encoding="utf-8")):
+            raise ValueError("ustream-ssl " + version + " and " + patch.name +
+                             " do not produce the expected partial-write fix")
+    patches.mkdir(exist_ok=True)
+    shutil.copyfile(patch, target)
+    print("Staging ustream-ssl package patch: " + target.name + " for " + version, flush=True)
+
+
 def apply_ustream_ssl_write_patch(tree):
     """Validate and stage the partial-write fix across ustream-ssl updates."""
     package = tree / "package/libs/ustream-ssl"
@@ -810,23 +863,7 @@ def apply_ustream_ssl_write_patch(tree):
     source, version = fetch_ustream_ssl_source(tree, makefile.read_text())
     patches = package / "patches"
     target = patches / "900-flush-partial-ssl-writes.patch"
-    patch = ustream_ssl_write_patch(source)
-    if patch is None:
-        target.unlink(missing_ok=True)
-        print("Skipping ustream-ssl write fix: upstream " + version +
-              " already flushes partial writes", flush=True)
-        return
-    with tempfile.TemporaryDirectory(prefix="ustream-ssl-patch-") as directory:
-        source_dir = Path(directory)
-        (source_dir / "ustream-ssl.c").write_text(source)
-        try:
-            run("git", "apply", "--check", "--whitespace=nowarn", "-p1", str(patch), cwd=source_dir)
-        except subprocess.CalledProcessError:
-            raise ValueError("ustream-ssl " + version +
-                             " changed and " + patch.name + " no longer applies; update that patch") from None
-    patches.mkdir(exist_ok=True)
-    shutil.copyfile(patch, target)
-    print("Staging ustream-ssl package patch: " + target.name + " for " + version, flush=True)
+    stage_ustream_ssl_write_patch(source, version, patches, target)
 
 
 def apply_kernel_config(tree, profile):
