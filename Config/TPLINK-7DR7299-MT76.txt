@@ -20,11 +20,13 @@ CONFIG_KERNEL_XDP_SOCKETS=y
 CONFIG_PACKAGE_kmod-sched=y
 CONFIG_PACKAGE_kmod-tcp-bbr=y
 
-# DAWN / 802.11s
+# usteer / 802.11s
 CONFIG_BATMAN_ADV_BLA=y
 CONFIG_PACKAGE_MAC80211_MESH=y
 CONFIG_PACKAGE_batctl-default=y
-CONFIG_PACKAGE_dawn=y
+CONFIG_PACKAGE_usteer=y
+CONFIG_PACKAGE_luci-app-usteer=y
+CONFIG_PACKAGE_luci-i18n-usteer-zh-cn=y
 CONFIG_PACKAGE_kmod-batman-adv=y
 CONFIG_PACKAGE_luci-proto-batman-adv=y
 CONFIG_PACKAGE_umdns=y

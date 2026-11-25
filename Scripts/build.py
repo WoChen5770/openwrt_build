@@ -25,7 +25,6 @@ CI_INPUTS = ("Config", "Scripts", ".github", ".gitattributes")
 FIRMWARE_INPUTS = (
     ".gitattributes", ".github/workflows/build.yml",
     "Scripts/build.py", "Scripts/compile.sh", "Scripts/install-dependencies.sh", "Scripts/uci-defaults",
-    "Scripts/Patches/dawn-advisory-btm.patch", "Scripts/Patches/dawn-runtime-fixes.patch",
     "Scripts/Patches/ustream-ssl-partial-write.patch", "Scripts/Patches/ustream-ssl-partial-write-modern.patch",
 )
 GENERATED_DIRS = {".git", ".state", "out", "logs", "__pycache__", "openwrt", "tests"}
@@ -718,22 +717,6 @@ def apply_source_patches(tree, patches):
         run("patch", "--batch", "--forward", "--fuzz=0", "-p1", "-i", str(path), cwd=tree)
 
 
-def apply_dawn_patches(tree, values, profile_patches):
-    if values.get("PACKAGE_dawn") not in ("y", "m"):
-        return
-    dawn_package = tree / "feeds/packages/net/dawn"
-    if not (dawn_package / "Makefile").is_file():
-        raise ValueError("DAWN recipe missing from the packages feed")
-    runtime_patch = "Scripts/Patches/dawn-runtime-fixes.patch"
-    if runtime_patch not in profile_patches:
-        apply_source_patches(tree, [runtime_patch])
-    package_patches = dawn_package / "patches"
-    package_patches.mkdir(exist_ok=True)
-    print("Staging DAWN package patch: 950-advisory-btm.patch", flush=True)
-    shutil.copyfile(ROOT / "Scripts/Patches/dawn-advisory-btm.patch",
-                    package_patches / "950-advisory-btm.patch")
-
-
 def makefile_value(content, name, filename="ustream-ssl Makefile"):
     match = re.search(r"(?m)^" + re.escape(name) + r"\s*(?::|\?)?=\s*(.*?)\s*$", content)
     if not match or not match.group(1):
@@ -1336,7 +1319,6 @@ def prepare(args):
     run("make", "defconfig", cwd=tree)
     actual = (tree / ".config").read_text()
     validate_config(lock["profile_id"], lock["profile"], actual, values)
-    apply_dawn_patches(tree, merge_config([actual]), profile_patches)
     print("Configuration verified: " + lock["profile_id"])
 
 
@@ -1492,7 +1474,7 @@ def release_notes(lock, identity=None, config_name="Config-*.txt", manifest=None
         notes += "\n> 仅适用于 TP-Link TL-7DR7299 v1。MT76 / MTK 的引导器及分区布局需分别核对，不保证直接互刷。"
         notes += "sysupgrade.itb 用于匹配布局的 OpenWrt 升级；recovery.itb 为恢复镜像，不是原厂首次刷入包；不发布引导器。"
         if source.get("vendor_wireless", False):
-            notes += "闭源版不集成 Mesh / DAWN；HNAT / WARP 相关功能使用前需验证兼容性。"
+            notes += "闭源版不集成 Mesh / usteer；HNAT / WARP 相关功能使用前需验证兼容性。"
         notes += "\n"
     notes += "\n<details>\n<summary>源码与文件</summary>\n\n"
     notes += "源码：[" + source["branch"] + " · " + source["commit"][:7] + "](" + repository + "/commit/" + source["commit"] + ")。\n\n"

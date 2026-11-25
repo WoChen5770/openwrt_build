@@ -16,13 +16,13 @@
 | 机型 | 特性与插件 | 源码 |
 | :--- | :--- | :--- |
 | x86-64 | BBR · BIOS / UEFI / VMDK<br>PassWall（Xray-only）· daed / honk · EasyTier · AdGuard Home | [VIKINGYFY / owrt](https://github.com/VIKINGYFY/immortalwrt/tree/owrt) |
-| TL-7DR7299 · MT76 | 开源无线 · DAWN · BBR / fq<br>PassWall（Xray-only）· daed / honk · EasyTier · AdGuard Home | [VIKINGYFY / owrt](https://github.com/VIKINGYFY/immortalwrt/tree/owrt) |
+| TL-7DR7299 · MT76 | 开源无线 · usteer · BBR / fq<br>PassWall（Xray-only）· daed / honk · EasyTier · AdGuard Home | [VIKINGYFY / owrt](https://github.com/VIKINGYFY/immortalwrt/tree/owrt) |
 | TL-7DR7299 · MTK | 闭源无线 · HNAT / WARP · TurboACC / eQoS<br>PassWall（Xray-only）· daed / honk · EasyTier · AdGuard Home | [padavanonly / 6.6-mtwifi](https://github.com/padavanonly/immortalwrt-mt798x-6.6/tree/mt798x-mt799x-6.6-mtwifi) |
-| Xiaomi BE6500 | ath12k · PPE · DAWN · BBR / fq | [VIKINGYFY / owrt](https://github.com/VIKINGYFY/immortalwrt/tree/owrt) |
-| Tenda BE12 Pro | MT76 · DAWN · BBR / fq | [VIKINGYFY / owrt](https://github.com/VIKINGYFY/immortalwrt/tree/owrt) |
-| 超级网关S20P · MT76 | 开源无线 · DAWN · BBR / fq<br>PassWall（Xray-only）· daed / honk · EasyTier · AdGuard Home | [VIKINGYFY / owrt](https://github.com/VIKINGYFY/immortalwrt/tree/owrt) |
+| Xiaomi BE6500 | ath12k · PPE · usteer · BBR / fq | [VIKINGYFY / owrt](https://github.com/VIKINGYFY/immortalwrt/tree/owrt) |
+| Tenda BE12 Pro | MT76 · usteer · BBR / fq | [VIKINGYFY / owrt](https://github.com/VIKINGYFY/immortalwrt/tree/owrt) |
+| 超级网关S20P · MT76 | 开源无线 · usteer · BBR / fq<br>PassWall（Xray-only）· daed / honk · EasyTier · AdGuard Home | [VIKINGYFY / owrt](https://github.com/VIKINGYFY/immortalwrt/tree/owrt) |
 | 超级网关S20P · MTK | 闭源无线 · HNAT / WARP · TurboACC / eQoS<br>PassWall（Xray-only）· daed / honk · EasyTier · AdGuard Home | [chasey-dev / 25.12](https://github.com/chasey-dev/immortalwrt-mt798x-rebase/tree/25.12) |
-| 京东云无线宝赵云 · JDCloud RE-CS-06 | ath12k · PPE · DAWN · BBR / fq<br>PassWall（Xray-only）· daed / honk · EasyTier · AdGuard Home | [VIKINGYFY / owrt](https://github.com/VIKINGYFY/immortalwrt/tree/owrt) |
+| 京东云无线宝赵云 · JDCloud RE-CS-06 | ath12k · PPE · usteer · BBR / fq<br>PassWall（Xray-only）· daed / honk · EasyTier · AdGuard Home | [VIKINGYFY / owrt](https://github.com/VIKINGYFY/immortalwrt/tree/owrt) |
 
 > 赵云（构建选项 `jdcloud-re-cs-06`）适配 2G 大分区，使用 LZMA/FIT 内核并保留上游 7 MiB 内核区域与 eMMC 布局，刷入前请确认引导器兼容。
 
@@ -33,7 +33,7 @@
 | 管理入口 | `192.168.123.1` · HTTP / HTTPS |
 | 管理账号 | `root` · 默认空密码 |
 | Wi-Fi | `ImmortalWrt` · 密码 `12345678` · 国家代码 `US` · 5GHz 默认 160MHz（设备支持时） |
-| 组网与漫游 | DAWN · 802.11k/v/r |
+| 组网与漫游 | usteer · 802.11k/v/r |
 | 界面 | Vantage（默认）· Dashboard 可选 · 简体中文 |
 | 时区 | Asia/Shanghai |
 
@@ -98,7 +98,7 @@ Scripts/             构建脚本、插件集成及配套资源
 | host / 工具链缓存 | 同一源码、target / subtarget 的机型共享；指纹只包含工具链相关源码和配置 |
 | hostpkg 缓存 | 独立保存软件包宿主工具，额外校验 feeds、插件、配置与集成脚本 |
 | MTK 旧版源码的 Go | 7DR7299 / S20P MTK 的 dae / daed 使用锁定的独立 Go 1.27 工具链；其他软件包继续使用上游 Go |
-| MTK 服务 | 7DR7299 与 S20P MTK 的闭源无线版不集成 DAWN |
+| MTK 服务 | 7DR7299 与 S20P MTK 的闭源无线版不集成 usteer |
 
 临时选包示例（可多行，也可用字面量 `\n` 分隔）：
 
